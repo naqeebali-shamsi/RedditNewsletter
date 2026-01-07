@@ -13,6 +13,7 @@ from .topic_researcher import TopicResearchAgent
 from .visuals import VisualsAgent
 from .commit_analyzer import CommitAnalysisAgent
 from .adversarial_panel import AdversarialPanelAgent, PanelVerdict, ExpertCritique
+from .technical_supervisor import TechnicalSupervisorAgent
 
 __all__ = [
     'BaseAgent',
@@ -26,4 +27,5 @@ __all__ = [
     'AdversarialPanelAgent',
     'PanelVerdict',
     'ExpertCritique',
+    'TechnicalSupervisorAgent',
 ]

@@ -93,6 +93,49 @@ Use "I", "we", "our" to share your personal engineering journey.
     draft = writer.write_section(refined_outline, critique=f"Prepare the full draft.\n{voice_instruction}")
     print(f"   ✓ First Draft Complete ({len(draft)} chars)")
 
+    # 3.5. Technical Quality Gate (catches fabricated stats, broken code, etc.)
+    from execution.agents.technical_supervisor import TechnicalSupervisorAgent
+
+    print(f"\n🔬 [Technical Supervisor] Validating technical accuracy...")
+    tech_supervisor = TechnicalSupervisorAgent()
+
+    MAX_TECH_REVISIONS = 2
+    for tech_attempt in range(MAX_TECH_REVISIONS + 1):
+        tech_result = tech_supervisor.validate(draft, topic=args.topic)
+
+        if tech_result["passed"]:
+            print(f"   ✓ Technical validation PASSED (Score: {tech_result['score']}/100)")
+            break
+
+        print(f"   ⚠️  Technical issues found (Score: {tech_result['score']}/100)")
+        print(f"      Critical: {tech_result['critical_count']}, Major: {tech_result['major_count']}")
+
+        if tech_attempt < MAX_TECH_REVISIONS:
+            # Send back to writer with specific fixes
+            print(f"   🔄 Revision {tech_attempt + 1}/{MAX_TECH_REVISIONS}...")
+
+            fix_instructions = f"""
+TECHNICAL REVISION REQUIRED. Fix these specific issues:
+
+{tech_result['summary']}
+
+RULES FOR REVISION:
+1. REMOVE all uncited statistics (40%, 30%, etc.) - either cite a real source or delete
+2. FIX or REMOVE broken code examples - code must actually run
+3. REMOVE causally impossible claims (e.g., "architecture improved accuracy")
+4. REPLACE vague "studies show" with specific sources OR rephrase as opinion
+5. DO NOT invent new statistics to replace removed ones
+
+Keep the same structure but make it TECHNICALLY HONEST.
+"""
+            draft = writer.call_llm(f"Revise this draft:\n\n{draft}\n\n{fix_instructions}")
+            print(f"   ✓ Revision complete ({len(draft)} chars)")
+        else:
+            print(f"   ⚠️  Max revisions reached. Proceeding with current draft.")
+            # Also run deep review to log domain issues
+            deep_review = tech_supervisor.deep_review(draft, topic=args.topic)
+            print(f"\n   📋 Deep Review:\n{deep_review[:500]}...")
+
     # 4. Specialist Refinement (Natural Voice Pipeline)
     from execution.agents.specialist import SpecialistAgent
 

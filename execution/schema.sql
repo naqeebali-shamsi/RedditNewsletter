@@ -42,3 +42,40 @@ CREATE INDEX IF NOT EXISTS idx_posts_subreddit ON posts(subreddit);
 CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON posts(timestamp);
 CREATE INDEX IF NOT EXISTS idx_evaluations_signal ON evaluations(is_signal);
 CREATE INDEX IF NOT EXISTS idx_drafts_published ON drafts(published);
+
+-- =============================================================================
+-- GitHub Integration Tables
+-- =============================================================================
+
+-- GitHub Commits table: Stores commit data from configured repositories
+CREATE TABLE IF NOT EXISTS github_commits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_owner TEXT NOT NULL,           -- e.g., "microsoft"
+    repo_name TEXT NOT NULL,            -- e.g., "semantic-kernel"
+    commit_sha TEXT UNIQUE NOT NULL,    -- Full SHA (unique identifier)
+    author_name TEXT,
+    author_email TEXT,
+    commit_message TEXT NOT NULL,
+    files_changed TEXT,                 -- JSON array of file paths
+    additions INTEGER DEFAULT 0,
+    deletions INTEGER DEFAULT 0,
+    committed_at INTEGER,               -- Unix timestamp
+    retrieved_at INTEGER NOT NULL
+);
+
+-- GitHub Themes table: Stores extracted themes/topics from commit analysis
+CREATE TABLE IF NOT EXISTS github_themes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    theme_title TEXT NOT NULL,
+    theme_description TEXT,
+    related_commits TEXT,               -- JSON array of commit IDs
+    relevance_score REAL DEFAULT 0.0,   -- 0-1 score from LLM
+    suggested_angle TEXT,               -- LLM-suggested content angle
+    analyzed_at INTEGER NOT NULL,
+    used_for_content BOOLEAN DEFAULT 0
+);
+
+-- Indexes for GitHub tables
+CREATE INDEX IF NOT EXISTS idx_commits_repo ON github_commits(repo_owner, repo_name);
+CREATE INDEX IF NOT EXISTS idx_commits_timestamp ON github_commits(committed_at);
+CREATE INDEX IF NOT EXISTS idx_themes_score ON github_themes(relevance_score);

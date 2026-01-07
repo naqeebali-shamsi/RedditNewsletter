@@ -16,3 +16,9 @@ python-dotenv==1.0.0
 
 # Utilities
 requests>=2.31.0
+google-genai>=1.52.0
+Pillow
+groq
+
+# Web UI
+streamlit>=1.30.0

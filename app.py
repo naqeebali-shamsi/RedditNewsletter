@@ -444,6 +444,7 @@ def init_session_state():
         'topic_reasoning': None,
         'is_running': False,
         'viewing_history': None,  # Currently viewed history file
+        'data_source': 'reddit',  # 'reddit' or 'github'
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -526,22 +527,46 @@ def run_full_pipeline(progress_callback, status_callback):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # PHASE 1: TOPIC RESEARCH (0-10%)
-    status_callback("Scanning Reddit for trending topics...")
-    progress_callback(0.02)
+    data_source = st.session_state.get('data_source', 'reddit')
 
-    topic_agent = TopicResearchAgent()
+    if data_source == 'github':
+        # GitHub commit analysis
+        from execution.agents.commit_analyzer import CommitAnalysisAgent
 
-    status_callback("Fetching from AI/ML subreddits...")
-    progress_callback(0.04)
-    topics = topic_agent.fetch_trending_topics()
+        status_callback("Analyzing GitHub commits for topics...")
+        progress_callback(0.02)
 
-    status_callback("Analyzing topics for positioning fit...")
-    progress_callback(0.08)
-    selected = topic_agent.analyze_and_select(topics)
+        commit_agent = CommitAnalysisAgent()
 
-    topic = selected['title']
-    topic_reasoning = selected.get('reasoning', '')
-    topic_angle = selected.get('angle', '')
+        status_callback("Fetching commits from database...")
+        progress_callback(0.05)
+
+        status_callback("Extracting themes from commit activity...")
+        progress_callback(0.08)
+        selected = commit_agent.research_github_topics_from_db()
+
+        topic = selected['title']
+        topic_reasoning = selected.get('reasoning', '')
+        topic_angle = selected.get('angle', '')
+
+    else:
+        # Reddit topic research (default)
+        status_callback("Scanning Reddit for trending topics...")
+        progress_callback(0.02)
+
+        topic_agent = TopicResearchAgent()
+
+        status_callback("Fetching from AI/ML subreddits...")
+        progress_callback(0.04)
+        topics = topic_agent.fetch_trending_topics()
+
+        status_callback("Analyzing topics for positioning fit...")
+        progress_callback(0.08)
+        selected = topic_agent.analyze_and_select(topics)
+
+        topic = selected['title']
+        topic_reasoning = selected.get('reasoning', '')
+        topic_angle = selected.get('angle', '')
 
     status_callback(f"Topic selected")
     progress_callback(0.10)
@@ -722,6 +747,19 @@ def main():
 
         st.markdown(f"Groq API: {'Connected' if groq_key else 'Not configured'}")
         st.markdown(f"Google API: {'Connected' if google_key else 'Not configured'}")
+
+        st.divider()
+
+        st.markdown('<p class="section-header">Data Source</p>', unsafe_allow_html=True)
+        source = st.radio(
+            "Topic Source",
+            ["reddit", "github"],
+            index=0 if st.session_state.get('data_source', 'reddit') == 'reddit' else 1,
+            format_func=lambda x: "Reddit (Trending)" if x == "reddit" else "GitHub (Commits)",
+            key="source_selector",
+            label_visibility="collapsed"
+        )
+        st.session_state.data_source = source
 
         st.divider()
 

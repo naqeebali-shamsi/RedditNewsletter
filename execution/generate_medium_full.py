@@ -19,6 +19,7 @@ from execution.agents.editor import EditorAgent
 from execution.agents.critic import CriticAgent
 from execution.agents.writer import WriterAgent
 from execution.agents.visuals import VisualsAgent
+from execution.prompts.voice_templates import get_voice_prompt, EXTERNAL_VOICE_PROMPT, INTERNAL_VOICE_PROMPT
 
 # Ensure output directory
 OUTPUT_DIR = Path("n:/RedditNews/drafts")
@@ -27,10 +28,17 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 def main():
     parser = argparse.ArgumentParser(description="Generate a high-quality Medium article.")
     parser.add_argument("--topic", help="Topic or Signal to write about", required=True)
+    parser.add_argument("--source-type", choices=["external", "internal"], default="external",
+                       help="Source type for voice selection: 'external' (observer) or 'internal' (owner)")
     args = parser.parse_args()
+
+    # Get voice context based on source type
+    voice_type = "Journalist Observer" if args.source_type == "external" else "Practitioner Owner"
 
     print(f"\n╔══════════════════════════════════════════════════════════════╗")
     print(f"║            Medium Article Factory (Hybrid Agents)            ║")
+    print(f"╠══════════════════════════════════════════════════════════════╣")
+    print(f"║  Voice Mode: {voice_type:<47} ║")
     print(f"╚══════════════════════════════════════════════════════════════╝\n")
 
     # 1. Initialize Agents
@@ -55,11 +63,34 @@ def main():
     print(f"   ✓ Outline Refined")
 
     # 3. Drafting Phase (Simplified for this script: Full Draft)
-    # In a full production run, we would loop through sections. 
+    # In a full production run, we would loop through sections.
     # Here we ask the writer to draft the full piece based on the refined outline.
-    
-    print(f"\n✍️  [Writer] Generating First Draft...")
-    draft = writer.write_section(refined_outline, critique="Prepare the full draft.")
+
+    # Voice-aware drafting instructions
+    if args.source_type == "external":
+        voice_instruction = """
+CRITICAL VOICE REQUIREMENT - JOURNALIST OBSERVER:
+This content is sourced from external community discussions (Reddit/HN/Twitter).
+You are an OBSERVER sharing learnings, NOT the person who did this work.
+
+FORBIDDEN: "I", "we", "our", "my", "I built", "we discovered", "our team"
+USE INSTEAD: "teams found", "engineers discovered", "the approach", "one developer's experience"
+
+Write as a well-connected technology journalist sharing insights from the engineering community.
+Use "you" to address the reader, but NEVER claim ownership of the work described.
+
+Example: Instead of "I spent 3 weeks debugging" write "The team spent 3 weeks debugging"
+Example: Instead of "Our approach reduced latency" write "This approach reduced latency"
+"""
+    else:
+        voice_instruction = """
+VOICE: PRACTITIONER OWNER
+This is YOUR experience. Use ownership voice authentically.
+Use "I", "we", "our" to share your personal engineering journey.
+"""
+
+    print(f"\n✍️  [Writer] Generating First Draft ({voice_type})...")
+    draft = writer.write_section(refined_outline, critique=f"Prepare the full draft.\n{voice_instruction}")
     print(f"   ✓ First Draft Complete ({len(draft)} chars)")
 
     # 4. Specialist Refinement (Natural Voice Pipeline)
@@ -81,9 +112,23 @@ Keep the author's voice - don't make it sound like marketing copy."""
     print(f"   ✓ Hook & Title Optimized")
 
     print(f"\n🔧 [Specialist] Weaving Authentic Narrative...")
-    story_agent = SpecialistAgent(
-        constraint_name="Storytelling Architect",
-        constraint_instruction="""Your job is to make this feel like it's written by a REAL engineer, not an AI.
+
+    # Voice-aware storytelling instructions based on source type
+    if args.source_type == "external":
+        story_instruction = """Your job is to make this feel like it's written by a REAL technology journalist sharing insights from the community, not an AI.
+
+CRITICAL VOICE RULE: You are an OBSERVER, not the person who did this work.
+- NEVER use: "we", "our", "my", "I built", "I created", "we discovered", "we found"
+- USE INSTEAD: "teams found", "engineers discovered", "the approach", "the implementation", "one developer's experience"
+
+1. Add 1-2 brief moments that show you've OBSERVED the community: "One team's frustration", "A pattern that keeps emerging", "What struck me about this discussion"
+   Keep these SHORT (2-3 sentences max) and weave them naturally into transitions.
+2. Use "you" to create conversation with the reader - "You've probably hit this wall" - but NOT "I" for ownership
+3. The personality should feel like a well-connected journalist explaining what they've learned from watching the best engineers work.
+
+Do NOT claim ownership of work you observed. If it sounds like you built it, rewrite it."""
+    else:
+        story_instruction = """Your job is to make this feel like it's written by a REAL engineer, not an AI.
 
 1. Add 1-2 brief personal moments: a frustration, a realization, a late-night debugging session.
    Keep these SHORT (2-3 sentences max) and weave them naturally into transitions.
@@ -91,14 +136,33 @@ Keep the author's voice - don't make it sound like marketing copy."""
 3. The personality should feel like a smart colleague explaining something over coffee, not a textbook.
 
 Do NOT add fake-sounding stories. If it feels forced, cut it."""
+
+    story_agent = SpecialistAgent(
+        constraint_name="Storytelling Architect",
+        constraint_instruction=story_instruction
     )
     draft = story_agent.refine(draft)
     print(f"   ✓ Authentic Narrative Added")
 
     print(f"\n🔧 [Specialist] Refining Voice & Tone...")
-    voice_agent = SpecialistAgent(
-        constraint_name="Voice & Tone Specialist",
-        constraint_instruction="""Your job is to make this sound like ONE consistent, authentic person.
+
+    # Voice-aware tone instructions based on source type
+    if args.source_type == "external":
+        voice_instruction = """Your job is to make this sound like ONE consistent, authentic technology journalist.
+
+CRITICAL VOICE CHECK: Scan for and REMOVE any ownership language:
+- "we", "our", "my" → Replace with "the team", "this approach", "the engineers"
+- "I built", "I created" → Replace with "was built", "the implementation"
+- "we discovered", "we found" → Replace with "teams discovered", "engineers found"
+
+1. Remove anything that sounds like corporate speak, marketing jargon, or AI-generated filler.
+2. Add subtle wit where natural - a wry observation, a knowing aside. NOT forced jokes.
+3. Vary sentence rhythm: mix punchy short sentences with longer explanations.
+4. The tone should be: informed observer, confident analyst, technical but accessible.
+
+Read it aloud - if it sounds like YOU built it (and you didn't), rewrite those parts."""
+    else:
+        voice_instruction = """Your job is to make this sound like ONE consistent, authentic person.
 
 1. Remove anything that sounds like corporate speak, marketing jargon, or AI-generated filler.
 2. Add subtle wit where natural - a wry observation, a knowing aside. NOT forced jokes.
@@ -106,6 +170,10 @@ Do NOT add fake-sounding stories. If it feels forced, cut it."""
 4. The tone should be: confident but not arrogant, technical but accessible, opinionated but fair.
 
 Read it aloud - if it sounds like a robot wrote it, rewrite those parts."""
+
+    voice_agent = SpecialistAgent(
+        constraint_name="Voice & Tone Specialist",
+        constraint_instruction=voice_instruction
     )
     draft = voice_agent.refine(draft)
     print(f"   ✓ Voice Refined")
@@ -127,9 +195,26 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
 
     # 4.5. Final Formatting & Polish
     print(f"\n✨ [Specialist] Final Polish...")
-    polisher = SpecialistAgent(
-        constraint_name="Final Editor",
-        constraint_instruction="""Final pass before publication. Your job is COHESION and CLEAN OUTPUT.
+
+    # Voice-aware final polish instructions
+    if args.source_type == "external":
+        polish_instruction = """Final pass before publication. Your job is COHESION, CLEAN OUTPUT, and VOICE COMPLIANCE.
+
+FINAL VOICE CHECK (CRITICAL for external sources):
+- Scan for ANY remaining: "we", "our", "my", "I built", "I created", "we discovered"
+- If found, replace with observer alternatives: "teams", "the approach", "engineers discovered"
+- The voice should be JOURNALIST OBSERVER throughout - sharing learnings, not claiming ownership
+
+1. Strip ALL internal labels, metadata markers, section tags, and any "Value-Bait:", "Hook:", etc. prefixes.
+2. Format first line as # H1 Title (clean, no labels).
+3. Ensure smooth transitions between sections - no jarring jumps.
+4. Remove any repetitive phrases or ideas that got duplicated across specialist passes.
+5. If there are forced bullet lists that interrupt flow, convert them to natural prose.
+6. The final piece should read like ONE technology journalist wrote it - informed observer, not practitioner.
+
+Output ONLY the polished markdown. No explanations, no meta-commentary."""
+    else:
+        polish_instruction = """Final pass before publication. Your job is COHESION and CLEAN OUTPUT.
 
 1. Strip ALL internal labels, metadata markers, section tags, and any "Value-Bait:", "Hook:", etc. prefixes.
 2. Format first line as # H1 Title (clean, no labels).
@@ -139,6 +224,10 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
 6. The final piece should read like ONE person wrote it in ONE sitting - not a committee.
 
 Output ONLY the polished markdown. No explanations, no meta-commentary."""
+
+    polisher = SpecialistAgent(
+        constraint_name="Final Editor",
+        constraint_instruction=polish_instruction
     )
     draft = polisher.refine(draft)
     print(f"   ✓ Formatting Cleaned")
@@ -167,15 +256,29 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
         # Option A: Server-side generation with Nano Banana Pro (recommended)
         # Uses GOOGLE_API_KEY from .env for direct image generation
         images_dir = OUTPUT_DIR / "images"
-        generated_image_paths = visuals.generate_all_visuals(
+        generated_image_paths, generation_results = visuals.generate_all_visuals(
             visual_plan,
-            output_dir=str(images_dir)
+            output_dir=str(images_dir),
+            return_details=True  # Get full error details
         )
 
         if generated_image_paths:
             print(f"   🍌 Generated {len(generated_image_paths)} images")
             for path in generated_image_paths:
                 print(f"      📸 {path}")
+
+        # Report failures with detailed error info
+        failures = [r for r in generation_results if not r.success]
+        if failures:
+            print(f"\n   ⚠️  {len(failures)} image(s) failed:")
+            for r in failures:
+                print(f"      ❌ {r.concept_name}")
+                print(f"         Type: {r.error_type}")
+                print(f"         Error: {r.error}")
+                if r.error_code:
+                    print(f"         Code: {r.error_code}")
+                if r.raw_error:
+                    print(f"         Raw: {r.raw_error[:200]}...")
 
         # Option B: Fallback to Puter.js HTML dashboard (client-side, free)
         # Uncomment below if you prefer browser-based generation
@@ -211,6 +314,7 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
 
 **Generated by Multi-Agent Hybrid Pipeline**
 *Signal: {args.topic}*
+*Voice: {voice_type} (source: {args.source_type})*
 
 ---
 

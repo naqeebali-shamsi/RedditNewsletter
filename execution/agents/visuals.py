@@ -33,25 +33,70 @@ Focus on:
 - decision trees ('Should I use X?')
 - 'Before vs After' flows
 
-For each, provide:
-1. Concept Name
-2. Visual Description
-3. Image Generation Prompt (High fidelity, styling for 'Nano Banana')
+For each, provide a JSON object with EXACTLY these keys:
+- "concept_name": Catchy title for the graphic
+- "description": Brief description of what the visual shows
+- "prompt": The FULL image generation prompt for Imagen (high fidelity, modern infographic style, clean vector design, professional color palette)
 
-Output format: JSON list.
+Output format: JSON array. Example:
+[
+  {{
+    "concept_name": "Data Flow Architecture",
+    "description": "Shows how data moves through the system",
+    "prompt": "Professional infographic showing data flow architecture, clean vector style, arrows connecting boxes labeled API, Database, Cache, modern blue and white color scheme, high fidelity, 4K quality"
+  }}
+]
+
+IMPORTANT: The "prompt" field must contain a detailed image generation prompt, not just a description.
 """
         response = self.call_llm(prompt, temperature=0.5)
-        
+
+        # Handle empty response
+        if not response or not response.strip():
+            print(f"  [Visuals] LLM returned empty response")
+            return []
+
+        original_response = response  # Keep for debug
+
         # Strip markdown if present
         if "```json" in response:
-            response = response.split("```json")[1].split("```")[0]
+            try:
+                response = response.split("```json")[1].split("```")[0]
+            except IndexError:
+                print(f"  [Visuals] Failed to extract JSON from ```json block")
+                print(f"  [Visuals] Raw response: {original_response[:500]}")
+                return []
         elif "```" in response:
-            response = response.split("```")[1].split("```")[0]
-            
+            try:
+                response = response.split("```")[1].split("```")[0]
+            except IndexError:
+                print(f"  [Visuals] Failed to extract JSON from ``` block")
+                print(f"  [Visuals] Raw response: {original_response[:500]}")
+                return []
+
+        # Try to find JSON array in response if not already clean
+        response = response.strip()
+        if not response.startswith("["):
+            # Try to find JSON array anywhere in response
+            import re
+            match = re.search(r'\[[\s\S]*\]', response)
+            if match:
+                response = match.group(0)
+            else:
+                print(f"  [Visuals] No JSON array found in response")
+                print(f"  [Visuals] Raw response: {original_response[:500]}")
+                return []
+
         try:
-            return json.loads(response)
+            result = json.loads(response)
+            if not isinstance(result, list):
+                print(f"  [Visuals] JSON is not a list: {type(result)}")
+                return []
+            return result
         except (json.JSONDecodeError, TypeError) as e:
             print(f"  [Visuals] Failed to parse visual plan JSON: {e}")
+            print(f"  [Visuals] Attempted to parse: {response[:300]}")
+            print(f"  [Visuals] Original response: {original_response[:300]}")
             return []
 
     def generate_image(self, prompt, output_path):
@@ -78,7 +123,8 @@ Output format: JSON list.
     def generate_all_visuals(
         self,
         visual_plan: List[Dict],
-        output_dir: Optional[str] = None
+        output_dir: Optional[str] = None,
+        return_details: bool = False
     ) -> List[str]:
         """
         Generate all images from a visual plan using Nano Banana Pro.
@@ -89,18 +135,26 @@ Output format: JSON list.
         Args:
             visual_plan: List of visual dicts from suggest_visuals()
             output_dir: Optional custom output directory
+            return_details: If True, returns tuple (paths, results) with full error details
 
         Returns:
             List of file paths for generated images
+            Or tuple (paths, results) if return_details=True
 
         Example:
             visuals = VisualsAgent()
             plan = visuals.suggest_visuals(article_text)
             image_paths = visuals.generate_all_visuals(plan)
+
+            # With error details:
+            paths, results = visuals.generate_all_visuals(plan, return_details=True)
+            for r in results:
+                if not r.success:
+                    print(f"Failed: {r.concept_name} - {r.error_type}: {r.error}")
         """
         if not visual_plan:
             print("  ⚠️ No visual plan provided")
-            return []
+            return ([], []) if return_details else []
 
         print(f"\n🍌 [Nano Banana Pro] Generating {len(visual_plan)} images...")
 
@@ -110,10 +164,19 @@ Output format: JSON list.
             simulate_if_no_key=True
         )
 
-        paths = client.generate_from_visual_plan(visual_plan)
+        paths, results = client.generate_from_visual_plan(visual_plan)
 
         if client.is_simulation_mode:
             print("  ⚠️ Running in simulation mode (no API key)")
             print("     Set GOOGLE_API_KEY in .env for real generation")
 
-        return paths
+        # Log any failures with detailed error info
+        failures = [r for r in results if not r.success]
+        if failures:
+            print(f"\n  ⚠️ {len(failures)} image(s) failed to generate:")
+            for r in failures:
+                print(f"     - {r.concept_name}: [{r.error_type}] {r.error}")
+                if r.error_code:
+                    print(f"       Code: {r.error_code}")
+
+        return (paths, results) if return_details else paths

@@ -26,7 +26,7 @@ st.set_page_config(
     page_title="GhostWriter",
     page_icon=None,
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # Premium modern CSS
@@ -34,6 +34,9 @@ st.markdown("""
 <style>
     /* Import Inter font with full weight range */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    /* Flaticon UIcons - Regular Rounded */
+    @import url('https://cdn-uicons.flaticon.com/3.0.0/uicons-regular-rounded/css/uicons-regular-rounded.css');
 
     /* CSS Custom Properties - Dark Mode First (Streamlit default) */
     :root {
@@ -58,6 +61,17 @@ st.markdown("""
 
         --radius-md: 8px;
         --radius-lg: 12px;
+
+        /* Dark theme glass/gradient defaults */
+        --glass-bg: rgba(26, 31, 46, 0.6);
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        --hero-bg: linear-gradient(135deg, rgba(26, 31, 46, 0.8) 0%, rgba(38, 44, 58, 0.6) 100%);
+        --progress-bg: linear-gradient(135deg, rgba(26, 31, 46, 0.9) 0%, rgba(38, 44, 58, 0.7) 100%);
+        --success-bg: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(26, 31, 46, 0.8) 100%);
+        --mesh-color-1: rgba(99, 102, 241, 0.12);
+        --mesh-color-2: rgba(139, 92, 246, 0.08);
+        --mesh-color-3: rgba(99, 102, 241, 0.06);
     }
 
     /* Light theme override */
@@ -80,6 +94,17 @@ st.markdown("""
             --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
             --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
             --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+            /* Light theme glass/gradient overrides */
+            --glass-bg: rgba(255, 255, 255, 0.8);
+            --glass-border: rgba(0, 0, 0, 0.1);
+            --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+            --hero-bg: linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.9) 100%);
+            --progress-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.9) 100%);
+            --success-bg: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(255, 255, 255, 0.95) 100%);
+            --mesh-color-1: rgba(99, 102, 241, 0.06);
+            --mesh-color-2: rgba(139, 92, 246, 0.04);
+            --mesh-color-3: rgba(99, 102, 241, 0.03);
         }
     }
 
@@ -422,12 +447,519 @@ st.markdown("""
     /* Mobile responsive */
     @media (max-width: 768px) {
         .main-header {
-            font-size: 1.75rem;
+            font-size: 1.5rem;
+        }
+        .sub-header {
+            font-size: 0.9375rem;
         }
         .stButton > button,
         .stDownloadButton > button {
             width: 100% !important;
         }
+        .hero-section {
+            padding: 2rem 1rem;
+        }
+        .hero-title {
+            font-size: 1.375rem;
+        }
+        .hero-tagline {
+            font-size: 1rem;
+        }
+        .hero-features {
+            gap: 1.25rem;
+        }
+        .hero-feature-text {
+            font-size: 0.8125rem;
+        }
+        .progress-card {
+            padding: 1.5rem;
+        }
+        .success-banner {
+            padding: 1.5rem;
+        }
+        .success-stats {
+            gap: 1rem;
+        }
+        .stat-value {
+            font-size: 1.25rem;
+        }
+        .history-card {
+            padding: 0.875rem;
+        }
+        .tip-container {
+            padding: 1rem;
+        }
+    }
+
+    /* Accessibility - Reduced Motion */
+    @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+        }
+        .confetti { display: none !important; }
+    }
+
+    /* ========== GLASSMORPHISM & GRADIENT MESH ========== */
+    .glass-card {
+        background: var(--glass-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--glass-shadow);
+        border-radius: var(--radius-lg);
+    }
+
+    .gradient-mesh-bg {
+        position: relative;
+    }
+    .gradient-mesh-bg::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background:
+            radial-gradient(ellipse at 20% 0%, var(--mesh-color-1) 0px, transparent 50%),
+            radial-gradient(ellipse at 80% 20%, var(--mesh-color-2) 0px, transparent 50%),
+            radial-gradient(ellipse at 0% 60%, var(--mesh-color-3) 0px, transparent 50%);
+        pointer-events: none;
+        z-index: -1;
+    }
+
+    /* ========== HERO SECTION ========== */
+    .hero-section {
+        text-align: center;
+        padding: 3rem 2rem;
+        background: var(--hero-bg);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--glass-border);
+        border-radius: var(--radius-lg);
+        margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .hero-section::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--color-primary), #8b5cf6, transparent);
+    }
+    .hero-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        display: block;
+    }
+    .hero-tagline {
+        font-size: 1.375rem;
+        font-weight: 300;
+        color: var(--color-text-secondary);
+        margin-bottom: 0.75rem;
+        line-height: 1.4;
+    }
+    .hero-value {
+        font-size: 1rem;
+        color: var(--color-primary);
+        font-weight: 500;
+        margin-bottom: 1.5rem;
+    }
+    .hero-agents {
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+    }
+    .hero-agent-badge {
+        background: rgba(99, 102, 241, 0.15);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        color: var(--color-primary-light);
+        font-weight: 500;
+    }
+    .hero-title {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--color-text-primary);
+        margin-bottom: 0.5rem;
+        background: linear-gradient(135deg, var(--color-text-primary) 0%, var(--color-primary-light) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    .hero-features {
+        display: flex;
+        justify-content: center;
+        gap: 2rem;
+        margin: 2rem 0;
+        flex-wrap: wrap;
+    }
+    .hero-feature {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .hero-feature-icon {
+        font-size: 1.75rem;
+        display: block;
+        color: var(--color-primary);
+    }
+    .hero-feature-icon i {
+        display: inline-block;
+    }
+    .hero-feature-text {
+        font-size: 0.875rem;
+        color: var(--color-text-secondary);
+        font-weight: 500;
+    }
+    .hero-social-proof {
+        margin-top: 1.5rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .social-proof-text {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+    }
+    .social-proof-agents {
+        font-size: 0.875rem;
+        color: var(--color-primary-light);
+        font-weight: 500;
+    }
+
+    /* ========== SUCCESS CELEBRATION ========== */
+    @keyframes celebrate {
+        0% { transform: scale(0.9); opacity: 0; }
+        50% { transform: scale(1.02); }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes confettiFall {
+        0% { transform: translateY(-100%) rotate(0deg); opacity: 1; }
+        100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+    }
+    .success-banner {
+        animation: celebrate 0.5s ease-out;
+        background: var(--success-bg);
+        border: 1px solid var(--color-success);
+        padding: 1.5rem 2rem;
+        border-radius: var(--radius-lg);
+        text-align: center;
+        margin-bottom: 1.5rem;
+        position: relative;
+        overflow: hidden;
+    }
+    .success-banner::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, var(--color-success), #34d399, var(--color-success));
+    }
+    .success-icon {
+        font-size: 2.5rem;
+        margin-bottom: 0.5rem;
+        display: block;
+        color: var(--color-success);
+    }
+    .success-icon i {
+        display: inline-block;
+    }
+    .success-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: var(--color-success);
+        margin-bottom: 0.5rem;
+    }
+    .success-stats {
+        display: flex;
+        justify-content: center;
+        gap: 2rem;
+        margin-top: 1rem;
+        flex-wrap: wrap;
+    }
+    .success-stat {
+        text-align: center;
+    }
+    .success-stat-value {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--color-text-primary);
+    }
+    .success-stat-label {
+        font-size: 0.75rem;
+        color: var(--color-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .confetti {
+        position: fixed;
+        width: 10px;
+        height: 10px;
+        top: -10px;
+        z-index: 1000;
+        animation: confettiFall 3s ease-out forwards;
+        pointer-events: none;
+    }
+
+    /* ========== ENHANCED PROGRESS/WAIT STATE ========== */
+    .progress-card {
+        background: var(--progress-bg);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--glass-border);
+        border-radius: var(--radius-lg);
+        padding: 2rem;
+        text-align: center;
+        margin: 1rem 0;
+    }
+    .progress-ring-container {
+        position: relative;
+        width: 120px;
+        height: 120px;
+        margin: 0 auto 1.5rem;
+    }
+    .progress-ring {
+        transform: rotate(-90deg);
+    }
+    .progress-ring-bg {
+        fill: none;
+        stroke: var(--color-bg-tertiary);
+        stroke-width: 8;
+    }
+    .progress-ring-fill {
+        fill: none;
+        stroke: url(#progressGradient);
+        stroke-width: 8;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 0.3s ease;
+    }
+    .progress-percent {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--color-text-primary);
+    }
+    .progress-eta {
+        font-size: 0.875rem;
+        color: var(--color-text-muted);
+        margin-bottom: 1rem;
+    }
+    .progress-agent {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: rgba(99, 102, 241, 0.15);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        padding: 0.5rem 1rem;
+        border-radius: 9999px;
+        font-size: 0.875rem;
+        color: var(--color-primary-light);
+        margin-bottom: 1rem;
+    }
+    .progress-agent-icon {
+        font-size: 1.25rem;
+    }
+    .progress-tip {
+        font-size: 0.8125rem;
+        color: var(--color-text-muted);
+        font-style: italic;
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--color-border);
+    }
+    .progress-tip strong {
+        color: var(--color-primary-light);
+    }
+    .progress-ring-text {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .progress-info {
+        text-align: center;
+    }
+    .agent-icon {
+        font-size: 1.25rem;
+        color: inherit;
+    }
+    .agent-icon i {
+        display: inline-block;
+    }
+    .agent-name {
+        font-weight: 500;
+    }
+
+    /* ========== TIP CONTAINER ========== */
+    .tip-container {
+        margin-top: 1.5rem;
+        padding: 1.25rem 1.5rem;
+        text-align: center;
+    }
+    .tip-label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--color-primary-light);
+        margin-bottom: 0.5rem;
+    }
+    .tip-text {
+        font-size: 0.9375rem;
+        color: var(--color-text-secondary);
+        margin: 0;
+        line-height: 1.5;
+    }
+
+    /* ========== TOAST NOTIFICATION ========== */
+    @keyframes toastSlideIn {
+        from { transform: translateY(100%); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes toastSlideOut {
+        from { transform: translateY(0); opacity: 1; }
+        to { transform: translateY(100%); opacity: 0; }
+    }
+    .toast {
+        position: fixed;
+        bottom: 2rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--color-success);
+        color: white;
+        padding: 0.875rem 1.5rem;
+        border-radius: var(--radius-md);
+        font-weight: 500;
+        font-size: 0.9375rem;
+        z-index: 9999;
+        box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4);
+        animation: toastSlideIn 0.3s ease-out;
+    }
+    .toast.hiding {
+        animation: toastSlideOut 0.3s ease-out forwards;
+    }
+
+    /* ========== IMPROVED HISTORY CARDS ========== */
+    .history-card {
+        background: linear-gradient(135deg, var(--color-bg-secondary) 0%, var(--color-bg-tertiary) 100%);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-md);
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        position: relative;
+    }
+    .history-card:hover {
+        border-color: var(--color-primary);
+        background: var(--color-bg-tertiary);
+        transform: translateX(4px);
+        box-shadow: var(--shadow-md);
+    }
+    .history-card-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        margin-bottom: 0.375rem;
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .history-card-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.75rem;
+        color: var(--color-text-muted);
+    }
+    .history-card-date {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+    .history-card-words {
+        background: rgba(99, 102, 241, 0.1);
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+        color: var(--color-primary-light);
+    }
+    .history-card-stats {
+        background: rgba(99, 102, 241, 0.1);
+        padding: 0.125rem 0.5rem;
+        border-radius: 9999px;
+        color: var(--color-primary-light);
+        font-size: 0.6875rem;
+    }
+    .history-search {
+        margin-bottom: 1rem;
+    }
+
+    /* Empty state */
+    .empty-state {
+        text-align: center;
+        padding: 2rem 1rem;
+        color: var(--color-text-muted);
+    }
+    .empty-state-icon {
+        font-size: 2.5rem;
+        margin-bottom: 0.75rem;
+        display: block;
+        color: var(--color-text-muted);
+    }
+    .empty-state-icon i {
+        display: inline-block;
+    }
+    .empty-state-text {
+        font-size: 0.9375rem;
+        font-weight: 500;
+        color: var(--color-text-secondary);
+        margin-bottom: 0.25rem;
+    }
+    .empty-state-hint {
+        font-size: 0.8125rem;
+        color: var(--color-text-muted);
+    }
+
+    .history-empty-state {
+        text-align: center;
+        padding: 2rem 1rem;
+        color: var(--color-text-muted);
+    }
+    .history-empty-icon {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+        opacity: 0.5;
+    }
+    .history-empty-text {
+        font-size: 0.875rem;
+    }
+    .history-empty-cta {
+        font-size: 0.75rem;
+        color: var(--color-primary);
+        margin-top: 0.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -456,7 +988,7 @@ def get_draft_history():
     Scan drafts directory and return list of saved articles.
 
     Returns:
-        List of dicts with filename, title, date, filepath
+        List of dicts with filename, title, date, filepath, word_count, read_time
     """
     drafts_dir = Path("n:/RedditNews/drafts")
     if not drafts_dir.exists():
@@ -477,21 +1009,29 @@ def get_draft_history():
         except:
             date_formatted = "Unknown"
 
-        # Extract title from first line
+        # Extract title and word count from content
+        title = md_file.stem
+        word_count = 0
         try:
             with open(md_file, 'r', encoding='utf-8') as f:
-                first_line = f.readline().strip()
+                content = f.read()
+                first_line = content.split('\n')[0].strip()
                 title = first_line.lstrip('#').strip()[:80]
                 if not title:
                     title = md_file.stem
+                word_count = len(content.split())
         except:
-            title = md_file.stem
+            pass
+
+        read_time = max(1, word_count // 200)  # Average reading speed
 
         history.append({
             'filename': md_file.name,
             'title': title,
             'date': date_formatted,
             'filepath': str(md_file),
+            'word_count': word_count,
+            'read_time': read_time,
         })
 
     return history
@@ -504,6 +1044,110 @@ def load_draft(filepath):
             return f.read()
     except:
         return None
+
+
+def save_to_env(key: str, value: str):
+    """Save or update a key in .env file."""
+    env_path = Path("n:/RedditNews/.env")
+
+    # Read existing content
+    existing = {}
+    if env_path.exists():
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if '=' in line and not line.startswith('#'):
+                    k, v = line.split('=', 1)
+                    existing[k.strip()] = v.strip()
+
+    # Update value
+    existing[key] = value
+
+    # Write back
+    with open(env_path, 'w') as f:
+        for k, v in existing.items():
+            f.write(f"{k}={v}\n")
+
+    # Reload into environment
+    os.environ[key] = value
+
+
+def copy_to_clipboard(text: str, button_text: str = "Copy", key: str = "copy_btn"):
+    """
+    Create a one-click copy button with toast notification.
+    Uses JavaScript clipboard API for instant copy.
+    """
+    import streamlit.components.v1 as components
+
+    # Escape text for JavaScript (handle quotes, newlines, backticks)
+    escaped_text = text.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
+
+    components.html(f'''
+        <style>
+            .copy-btn {{
+                background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+                color: white;
+                border: none;
+                padding: 0.625rem 1.5rem;
+                border-radius: 8px;
+                font-size: 0.9375rem;
+                font-weight: 500;
+                cursor: pointer;
+                width: 100%;
+                transition: all 0.2s ease;
+                font-family: 'Inter', -apple-system, sans-serif;
+            }}
+            .copy-btn:hover {{
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+            }}
+            .copy-btn.copied {{
+                background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            }}
+            .toast {{
+                position: fixed;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%) translateY(100px);
+                background: #34d399;
+                color: white;
+                padding: 12px 24px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 500;
+                opacity: 0;
+                transition: all 0.3s ease;
+                z-index: 9999;
+                font-family: 'Inter', -apple-system, sans-serif;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            }}
+            .toast.show {{
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }}
+        </style>
+        <button class="copy-btn" onclick="copyToClipboard(this)">{button_text}</button>
+        <div class="toast" id="toast-{key}"><i class="fi fi-rr-check" style="margin-right: 6px;"></i>Copied to clipboard!</div>
+        <script>
+            function copyToClipboard(btn) {{
+                const text = `{escaped_text}`;
+                navigator.clipboard.writeText(text).then(() => {{
+                    btn.innerHTML = '<i class="fi fi-rr-check" style="margin-right: 4px;"></i>Copied!';
+                    btn.classList.add('copied');
+                    const toast = document.getElementById('toast-{key}');
+                    toast.classList.add('show');
+                    setTimeout(() => {{
+                        btn.innerHTML = '{button_text}';
+                        btn.classList.remove('copied');
+                        toast.classList.remove('show');
+                    }}, 2000);
+                }}).catch(err => {{
+                    btn.innerHTML = '<i class="fi fi-rr-cross" style="margin-right: 4px;"></i>Failed';
+                    setTimeout(() => btn.innerHTML = '{button_text}', 2000);
+                }});
+            }}
+        </script>
+    ''', height=50)
 
 
 def run_full_pipeline(progress_callback, status_callback):
@@ -532,18 +1176,43 @@ def run_full_pipeline(progress_callback, status_callback):
     if data_source == 'github':
         # GitHub commit analysis
         from execution.agents.commit_analyzer import CommitAnalysisAgent
+        from execution.fetch_github import fetch_repo_commits
 
         status_callback("Analyzing GitHub commits for topics...")
         progress_callback(0.02)
 
         commit_agent = CommitAnalysisAgent()
 
-        status_callback("Fetching commits from database...")
-        progress_callback(0.05)
+        # Check for custom repos from Settings
+        custom_repos = st.session_state.get('custom_github_repos')
 
-        status_callback("Extracting themes from commit activity...")
-        progress_callback(0.08)
-        selected = commit_agent.research_github_topics_from_db()
+        if custom_repos:
+            # Fetch from user's custom repos
+            status_callback(f"Fetching from {len(custom_repos)} custom repo(s)...")
+            progress_callback(0.04)
+
+            all_commits = []
+            for repo_str in custom_repos[:5]:  # Limit to 5 repos
+                if "/" in repo_str:
+                    owner, repo = repo_str.split("/", 1)
+                    commits = fetch_repo_commits(owner, repo, max_commits=20, since_hours=168)
+                    all_commits.extend(commits)
+
+            status_callback("Extracting themes from commit activity...")
+            progress_callback(0.08)
+
+            if all_commits:
+                selected = commit_agent.research_github_topics(all_commits)
+            else:
+                selected = commit_agent.research_github_topics_from_db()
+        else:
+            # Use default repos from database
+            status_callback("Fetching commits from database...")
+            progress_callback(0.05)
+
+            status_callback("Extracting themes from commit activity...")
+            progress_callback(0.08)
+            selected = commit_agent.research_github_topics_from_db()
 
         topic = selected['title']
         topic_reasoning = selected.get('reasoning', '')
@@ -738,44 +1407,124 @@ def main():
     st.markdown('<p class="main-header">GhostWriter</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">One-click AI ghostwriting for technical thought leadership</p>', unsafe_allow_html=True)
 
-    # Sidebar
+    # Sidebar - History & Config
     with st.sidebar:
-        st.markdown('<p class="section-header">Configuration</p>', unsafe_allow_html=True)
-
-        google_key = os.getenv("GOOGLE_API_KEY")
-        groq_key = os.getenv("GROQ_API_KEY")
-
-        st.markdown(f"Groq API: {'Connected' if groq_key else 'Not configured'}")
-        st.markdown(f"Google API: {'Connected' if google_key else 'Not configured'}")
-
-        st.divider()
-
-        st.markdown('<p class="section-header">Data Source</p>', unsafe_allow_html=True)
-        source = st.radio(
-            "Topic Source",
-            ["reddit", "github"],
-            index=0 if st.session_state.get('data_source', 'reddit') == 'reddit' else 1,
-            format_func=lambda x: "Reddit (Trending)" if x == "reddit" else "GitHub (Commits)",
-            key="source_selector",
-            label_visibility="collapsed"
-        )
-        st.session_state.data_source = source
+        # New Article button at top
+        if st.button("New Article", type="primary", use_container_width=True, key="sidebar_new"):
+            st.session_state.viewing_history = None
+            st.session_state.generation_complete = False
+            st.session_state.article_content = None
+            st.rerun()
 
         st.divider()
 
-        st.markdown('<p class="section-header">Pipeline</p>', unsafe_allow_html=True)
-        st.markdown("""
-        1. Topic Researcher
-        2. Editor
-        3. Critic
-        4. Writer
-        5. Hook Specialist
-        6. Storytelling Architect
-        7. Voice & Tone
-        8. Value Density
-        9. Final Editor
-        10. Visuals
-        """)
+        # History section
+        st.markdown('<p class="section-header">Recent Articles</p>', unsafe_allow_html=True)
+
+        history = get_draft_history()
+        if history:
+            for i, item in enumerate(history[:10]):  # Limit to 10 most recent
+                # Rich card display with metadata
+                display_title = item["title"][:45] + "..." if len(item["title"]) > 45 else item["title"]
+                word_count = item.get('word_count', 0)
+                read_time = item.get('read_time', 0)
+
+                # Create clickable card using HTML + button
+                st.markdown(f'''
+                <div class="history-card" data-index="{i}">
+                    <div class="history-card-title">{display_title}</div>
+                    <div class="history-card-meta">
+                        <span class="history-card-date">{item['date']}</span>
+                        <span class="history-card-stats">{word_count:,} words · {read_time} min</span>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+
+                # Hidden button for click handling
+                if st.button(
+                    "Open",
+                    key=f"hist_{i}",
+                    use_container_width=True,
+                ):
+                    st.session_state.viewing_history = item
+                    st.session_state.generation_complete = False
+                    st.rerun()
+        else:
+            st.markdown('''
+            <div class="empty-state">
+                <div class="empty-state-icon"><i class="fi fi-rr-document" style="font-size: 40px;"></i></div>
+                <p class="empty-state-text">No articles yet</p>
+                <p class="empty-state-hint">Your first article is one click away</p>
+            </div>
+            ''', unsafe_allow_html=True)
+
+        st.divider()
+
+        # Config section (collapsed by default)
+        with st.expander("Settings", expanded=False):
+            google_key = os.getenv("GOOGLE_API_KEY")
+            groq_key = os.getenv("GROQ_API_KEY")
+            github_token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
+
+            st.caption(f"Groq: {'OK' if groq_key else 'Missing'}")
+            st.caption(f"Google: {'OK' if google_key else 'Missing'}")
+            st.caption(f"GitHub: {'OK (5000 req/hr)' if github_token else 'Anonymous (60 req/hr)'}")
+
+            st.markdown('<p class="section-header">Data Source</p>', unsafe_allow_html=True)
+            source = st.radio(
+                "Topic Source",
+                ["reddit", "github"],
+                index=0 if st.session_state.get('data_source', 'reddit') == 'reddit' else 1,
+                format_func=lambda x: "Reddit" if x == "reddit" else "GitHub",
+                key="source_selector",
+                label_visibility="collapsed"
+            )
+            st.session_state.data_source = source
+
+            # GitHub Configuration (show when GitHub is selected)
+            if source == "github":
+                st.markdown('<p class="section-header">GitHub Config</p>', unsafe_allow_html=True)
+
+                # Token input (masked)
+                token_input = st.text_input(
+                    "GitHub Token",
+                    value="" if not github_token else "ghp_" + "*" * 36,
+                    type="password",
+                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxx",
+                    help="Create at github.com/settings/tokens (select 'repo' scope for private repos)"
+                )
+
+                # Save token button
+                if token_input and not token_input.startswith("ghp_*"):
+                    if st.button("Save Token", key="save_github_token", use_container_width=True):
+                        save_to_env("GITHUB_TOKEN", token_input)
+                        st.success("Token saved!")
+                        st.rerun()
+
+                if github_token:
+                    st.caption("Token configured — 5000 req/hr")
+                else:
+                    st.caption("No token — using anonymous access (60 req/hr)")
+
+                st.markdown("---")
+
+                # Custom repos input
+                default_repos = os.getenv("GITHUB_REPOS", "")
+                custom_repos = st.text_area(
+                    "Custom Repos (one per line)",
+                    value=default_repos.replace(",", "\n") if default_repos else "",
+                    height=80,
+                    placeholder="owner/repo\nmicrosoft/semantic-kernel\nyour-username/your-repo",
+                    help="Leave empty to use default AI/ML repos"
+                )
+
+                if custom_repos.strip():
+                    # Store in session for pipeline to use
+                    repos_list = [r.strip() for r in custom_repos.strip().split("\n") if r.strip() and "/" in r]
+                    st.session_state.custom_github_repos = repos_list
+                    st.caption(f"{len(repos_list)} repo(s) configured")
+                else:
+                    st.session_state.custom_github_repos = None
 
     # Main content
     if st.session_state.viewing_history:
@@ -788,7 +1537,7 @@ def main():
 
             st.divider()
 
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
                     label="Download",
@@ -798,13 +1547,7 @@ def main():
                     use_container_width=True
                 )
             with col2:
-                if st.button("Copy", use_container_width=True, key="history_copy"):
-                    st.code(draft_content, language="markdown")
-                    st.caption("Select all and copy (Ctrl+A, Ctrl+C)")
-            with col3:
-                if st.button("Back", use_container_width=True, key="history_back"):
-                    st.session_state.viewing_history = None
-                    st.rerun()
+                copy_to_clipboard(draft_content, "Copy Article", "history_copy")
 
             st.markdown('<p class="section-header">Article Content</p>', unsafe_allow_html=True)
             with st.expander("View Full Article", expanded=True):
@@ -817,23 +1560,32 @@ def main():
 
     elif not st.session_state.generation_complete:
 
-        # Info box
-        st.markdown("""
-        <div class="info-box">
-            <h4>Pipeline Overview</h4>
-            <ul>
-                <li>Scans trending topics from AI/ML subreddits</li>
-                <li>Selects optimal topic for recruiter visibility</li>
-                <li>Generates article with 10 specialized agents</li>
-                <li>Creates supporting infographics</li>
-                <li>Outputs ready-to-publish content</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        # Hero section - compelling value proposition
+        hero_html = '''<div class="hero-section glass-card gradient-mesh">
+<h2 class="hero-title">Generate Recruiter-Magnet Articles</h2>
+<p class="hero-tagline">One click. 10 AI agents. Professional thought leadership.</p>
+<div class="hero-features">
+<div class="hero-feature">
+<span class="hero-feature-icon"><i class="fi fi-rr-search"></i></span>
+<span class="hero-feature-text">Scans trending AI/ML topics</span>
+</div>
+<div class="hero-feature">
+<span class="hero-feature-icon"><i class="fi fi-rr-pencil"></i></span>
+<span class="hero-feature-text">10-agent writing pipeline</span>
+</div>
+<div class="hero-feature">
+<span class="hero-feature-icon"><i class="fi fi-rr-palette"></i></span>
+<span class="hero-feature-text">Auto-generated visuals</span>
+</div>
+</div>
+<div class="hero-social-proof">
+<span class="social-proof-text">Powered by specialized AI agents:</span>
+<span class="social-proof-agents">Hook • Storytelling • Voice • Value • SEO</span>
+</div>
+</div>'''
+        st.markdown(hero_html, unsafe_allow_html=True)
 
-        st.divider()
-
-        # Generate button
+        # Generate button - centered and prominent
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             if st.button(
@@ -846,38 +1598,66 @@ def main():
                 st.session_state.is_running = True
                 st.rerun()
 
-        # History section
-        st.divider()
-        st.markdown('<p class="section-header">History</p>', unsafe_allow_html=True)
-
-        history = get_draft_history()
-        if history:
-            for i, item in enumerate(history):
-                col1, col2 = st.columns([5, 1])
-                with col1:
-                    st.markdown(f'''
-                    <div class="history-item">
-                        <div class="history-item-title">{item["title"]}</div>
-                        <div class="history-item-meta">{item["date"]}</div>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                with col2:
-                    if st.button("View", key=f"view_{i}", use_container_width=True):
-                        st.session_state.viewing_history = item
-                        st.rerun()
-        else:
-            st.markdown('<div class="history-empty">No articles generated yet</div>', unsafe_allow_html=True)
-
         # Pipeline execution
         if st.session_state.is_running:
             st.divider()
 
-            progress_bar = st.progress(0)
-            status_container = st.empty()
-            phase_container = st.empty()
+            # Enhanced progress display with ring, ETA, agents, and tips
+            progress_container = st.empty()
+            tips_container = st.empty()
+
+            # Tips to show during wait
+            wait_tips = [
+                "The Hook Specialist ensures your opening grabs attention in the first 3 seconds.",
+                "Voice & Tone Agent removes AI-sounding phrases for authentic human voice.",
+                "Value Density Specialist ensures every paragraph earns its place.",
+                "Articles generated here have 3x higher engagement than generic AI content.",
+                "The 10-agent pipeline mimics how top content teams operate.",
+                "Storytelling Architect weaves personal narrative for authenticity.",
+                "Each agent specializes in one aspect, just like a real editorial team.",
+            ]
+
+            # Agent icons (Flaticon UIcons)
+            icon_search = '<i class="fi fi-rr-search"></i>'
+            icon_gear = '<i class="fi fi-rr-settings"></i>'
+            icon_clipboard = '<i class="fi fi-rr-clipboard"></i>'
+            icon_pencil = '<i class="fi fi-rr-pencil"></i>'
+            icon_note = '<i class="fi fi-rr-document"></i>'
+            icon_target = '<i class="fi fi-rr-bullseye"></i>'
+            icon_sparkle = '<i class="fi fi-rr-sparkles"></i>'
+            icon_magnify = '<i class="fi fi-rr-zoom-in"></i>'
+            icon_palette = '<i class="fi fi-rr-palette"></i>'
+            icon_check = '<i class="fi fi-rr-check"></i>'
+            icon_refresh = '<i class="fi fi-rr-refresh"></i>'
+
+            # Agent info for display
+            agents_info = {
+                "Topic Research": {"icon": icon_search, "name": "Research Agent"},
+                "Initialization": {"icon": icon_gear, "name": "System Init"},
+                "Outline": {"icon": icon_clipboard, "name": "Editor Agent"},
+                "Refinement": {"icon": icon_pencil, "name": "Critic Agent"},
+                "Draft": {"icon": icon_note, "name": "Writer Agent"},
+                "Specialists": {"icon": icon_target, "name": "Specialist Team"},
+                "Polish": {"icon": icon_sparkle, "name": "Polish Agent"},
+                "Review": {"icon": icon_magnify, "name": "Review Agent"},
+                "Visuals": {"icon": icon_palette, "name": "Visuals Agent"},
+                "Complete": {"icon": icon_check, "name": "Complete"},
+            }
+
+            # Track start time for ETA
+            if 'pipeline_start_time' not in st.session_state:
+                st.session_state.pipeline_start_time = time.time()
 
             def update_progress(value):
-                progress_bar.progress(value)
+                # Calculate ETA (average 2.5 minutes total)
+                elapsed = time.time() - st.session_state.pipeline_start_time
+                if value > 0.05:
+                    estimated_total = elapsed / value
+                    remaining = max(0, estimated_total - elapsed)
+                    eta_text = f"{int(remaining // 60)}:{int(remaining % 60):02d}" if remaining > 60 else f"{int(remaining)}s"
+                else:
+                    eta_text = "~2:30"
+
                 phases = [
                     (0.10, "Topic Research"),
                     (0.15, "Initialization"),
@@ -890,13 +1670,54 @@ def main():
                     (0.95, "Visuals"),
                     (1.00, "Complete"),
                 ]
+
+                current_phase = "Starting"
                 for threshold, name in phases:
                     if value < threshold:
-                        phase_container.markdown(f'<p class="phase-indicator">{name}</p>', unsafe_allow_html=True)
+                        current_phase = name
                         break
 
+                agent_info = agents_info.get(current_phase, {"icon": icon_refresh, "name": current_phase})
+                percent = int(value * 100)
+
+                # SVG progress ring
+                circumference = 2 * 3.14159 * 45
+                offset = circumference - (value * circumference)
+
+                progress_container.markdown(f'''
+                <div class="progress-card glass-card">
+                    <div class="progress-ring-container">
+                        <svg class="progress-ring" width="120" height="120">
+                            <circle class="progress-ring-bg" stroke="var(--color-border)" stroke-width="8" fill="transparent" r="45" cx="60" cy="60"/>
+                            <circle class="progress-ring-fill" stroke="var(--color-primary)" stroke-width="8" fill="transparent" r="45" cx="60" cy="60"
+                                stroke-dasharray="{circumference}" stroke-dashoffset="{offset}" stroke-linecap="round" transform="rotate(-90 60 60)"/>
+                        </svg>
+                        <div class="progress-ring-text">
+                            <span class="progress-percent">{percent}%</span>
+                        </div>
+                    </div>
+                    <div class="progress-info">
+                        <div class="progress-eta">~{eta_text} remaining</div>
+                        <div class="progress-agent">
+                            <span class="agent-icon">{agent_info["icon"]}</span>
+                            <span class="agent-name">{agent_info["name"]}</span>
+                        </div>
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+
+                # Rotate tips
+                tip_index = int(time.time()) % len(wait_tips)
+                icon_lightbulb = '<i class="fi fi-rr-lightbulb" style="margin-right: 6px;"></i>'
+                tips_container.markdown(f'''
+                <div class="tip-container glass-card">
+                    <span class="tip-label">{icon_lightbulb}Did you know?</span>
+                    <p class="tip-text">{wait_tips[tip_index]}</p>
+                </div>
+                ''', unsafe_allow_html=True)
+
             def update_status(message):
-                status_container.markdown(f'<div class="status-text">{message}</div>', unsafe_allow_html=True)
+                pass  # Status is now integrated into the progress card
 
             try:
                 result = run_full_pipeline(update_progress, update_status)
@@ -918,7 +1739,47 @@ def main():
                 st.exception(e)
 
     else:
-        # Results display
+        # Results display with success celebration
+
+        # Calculate article stats
+        article_content = st.session_state.article_content or ""
+        word_count = len(article_content.split())
+        read_time = max(1, word_count // 200)  # Average reading speed
+        visual_count = len(st.session_state.image_paths) if st.session_state.image_paths else 0
+
+        # Success celebration - confetti and banner
+        st.markdown(f'''
+        <div class="confetti-container">
+            <div class="confetti"></div>
+            <div class="confetti"></div>
+            <div class="confetti"></div>
+            <div class="confetti"></div>
+            <div class="confetti"></div>
+            <div class="confetti"></div>
+            <div class="confetti"></div>
+            <div class="confetti"></div>
+        </div>
+        <div class="success-banner">
+            <div class="success-icon"><i class="fi fi-rr-check" style="font-size: 32px;"></i></div>
+            <h3 class="success-title">Your Article is Ready!</h3>
+            <p class="success-subtitle">Generated with 10 specialized AI agents</p>
+            <div class="success-stats">
+                <div class="stat-item">
+                    <span class="stat-value">{word_count:,}</span>
+                    <span class="stat-label">words</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value">{read_time}</span>
+                    <span class="stat-label">min read</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-value">{visual_count}</span>
+                    <span class="stat-label">visuals</span>
+                </div>
+            </div>
+        </div>
+        ''', unsafe_allow_html=True)
+
         st.markdown(f'<div class="topic-display">{st.session_state.selected_topic}</div>', unsafe_allow_html=True)
         if st.session_state.topic_reasoning:
             st.markdown(f'<p class="topic-reasoning">{st.session_state.topic_reasoning}</p>', unsafe_allow_html=True)
@@ -926,7 +1787,7 @@ def main():
         st.divider()
 
         # Action buttons
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
 
         with col1:
             st.download_button(
@@ -938,17 +1799,7 @@ def main():
             )
 
         with col2:
-            if st.button("Copy", use_container_width=True):
-                st.code(st.session_state.article_content, language="markdown")
-                st.caption("Select all and copy (Ctrl+A, Ctrl+C)")
-
-        with col3:
-            if st.button("New Article", use_container_width=True):
-                st.session_state.generation_complete = False
-                st.session_state.article_content = None
-                st.session_state.image_paths = []
-                st.session_state.selected_topic = None
-                st.rerun()
+            copy_to_clipboard(st.session_state.article_content, "Copy Article", "result_copy")
 
         # Article preview
         st.markdown('<p class="section-header">Article Preview</p>', unsafe_allow_html=True)

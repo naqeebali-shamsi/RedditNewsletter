@@ -149,7 +149,8 @@ def fetch_repo_commits(owner, repo, max_commits=50, since_hours=168):
             "committed_at": int(datetime.fromisoformat(
                 commit["commit"]["author"]["date"].replace("Z", "+00:00")
             ).timestamp()),
-            "retrieved_at": int(time.time())
+            "retrieved_at": int(time.time()),
+            "source_type": "internal"  # Voice transformation: use ownership voice
         }
         commits.append(commit_info)
 

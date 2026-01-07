@@ -79,7 +79,8 @@ def fetch_subreddit_rss(subreddit_name, max_posts=100):
             'timestamp': timestamp,
             'upvotes': 0,  # RSS doesn't include upvotes
             'num_comments': 0,  # RSS doesn't include comment count
-            'retrieved_at': int(time.time())
+            'retrieved_at': int(time.time()),
+            'source_type': 'external'  # Voice transformation: use observer voice
         }
         posts.append(post)
     

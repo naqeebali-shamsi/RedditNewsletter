@@ -14,6 +14,7 @@ from .visuals import VisualsAgent
 from .commit_analyzer import CommitAnalysisAgent
 from .adversarial_panel import AdversarialPanelAgent, PanelVerdict, ExpertCritique
 from .technical_supervisor import TechnicalSupervisorAgent
+from .fact_researcher import FactResearchAgent
 
 __all__ = [
     'BaseAgent',
@@ -28,4 +29,5 @@ __all__ = [
     'PanelVerdict',
     'ExpertCritique',
     'TechnicalSupervisorAgent',
+    'FactResearchAgent',
 ]

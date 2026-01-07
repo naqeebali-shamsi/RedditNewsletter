@@ -19,6 +19,7 @@ from execution.agents.editor import EditorAgent
 from execution.agents.critic import CriticAgent
 from execution.agents.writer import WriterAgent
 from execution.agents.visuals import VisualsAgent
+from execution.agents.fact_researcher import FactResearchAgent
 from execution.prompts.voice_templates import get_voice_prompt, EXTERNAL_VOICE_PROMPT, INTERNAL_VOICE_PROMPT
 
 # Ensure output directory
@@ -28,6 +29,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 def main():
     parser = argparse.ArgumentParser(description="Generate a high-quality Medium article.")
     parser.add_argument("--topic", help="Topic or Signal to write about", required=True)
+    parser.add_argument("--source-content", help="Original source content (Reddit post, etc.) for fact verification", default="")
     parser.add_argument("--source-type", choices=["external", "internal"], default="external",
                        help="Source type for voice selection: 'external' (observer) or 'internal' (owner)")
     args = parser.parse_args()
@@ -47,7 +49,34 @@ def main():
     critic = CriticAgent()
     writer = WriterAgent()
     visuals = VisualsAgent()
-    print("   ✓ Agents Ready: Editor, Critic, Writer, Visuals")
+    fact_researcher = FactResearchAgent()
+    print("   ✓ Agents Ready: Editor, Critic, Writer, Visuals, FactResearcher")
+
+    # 1.5 FACT RESEARCH PHASE (Critical for avoiding hallucination)
+    print(f"\n🔍 [Fact Researcher] Gathering verified facts for: '{args.topic}'...")
+
+    # Research the topic to get verified facts
+    # TODO: Integrate real web search function (e.g., Tavily, SerpAPI, or built-in WebSearch)
+    fact_sheet = fact_researcher.research(
+        topic=args.topic,
+        source_content=args.source_content,
+        web_search_func=None  # Pass search function when available
+    )
+
+    # Get constraints for the Writer
+    fact_constraints = fact_sheet.get("writer_constraints", "")
+
+    verified_count = len(fact_sheet.get("verified_facts", []))
+    unverified_count = len(fact_sheet.get("unverified_claims", []))
+    unknown_count = len(fact_sheet.get("unknowns", []))
+
+    print(f"   ✓ Research Complete:")
+    print(f"      Verified Facts: {verified_count}")
+    print(f"      Unverified (DO NOT USE): {unverified_count}")
+    print(f"      Unknowns: {unknown_count}")
+
+    if verified_count == 0:
+        print(f"   ⚠️  NO VERIFIED FACTS - Writer will avoid specific claims")
 
     # 2. Strategy Phase
     print(f"\n🧠 [Editor] Planning article on: '{args.topic}'...")
@@ -89,8 +118,18 @@ This is YOUR experience. Use ownership voice authentically.
 Use "I", "we", "our" to share your personal engineering journey.
 """
 
+    # Combine fact constraints with voice instruction for the Writer
+    writer_context = f"""
+{fact_constraints}
+
+{voice_instruction}
+
+REMEMBER: You can ONLY use specific numbers/specs from the FACT SHEET above.
+If you need a fact not in the sheet, write with conviction but WITHOUT fabricating data.
+"""
+
     print(f"\n✍️  [Writer] Generating First Draft ({voice_type})...")
-    draft = writer.write_section(refined_outline, critique=f"Prepare the full draft.\n{voice_instruction}")
+    draft = writer.write_section(refined_outline, critique=f"Prepare the full draft.\n{writer_context}")
     print(f"   ✓ First Draft Complete ({len(draft)} chars)")
 
     # 3.5. Technical Quality Gate (catches fabricated stats, broken code, etc.)
@@ -111,24 +150,28 @@ Use "I", "we", "our" to share your personal engineering journey.
         print(f"      Critical: {tech_result['critical_count']}, Major: {tech_result['major_count']}")
 
         if tech_attempt < MAX_TECH_REVISIONS:
-            # Send back to writer with specific fixes
+            # DYNAMIC REVISION: Generate targeted fix instructions based on WHAT failed
             print(f"   🔄 Revision {tech_attempt + 1}/{MAX_TECH_REVISIONS}...")
 
-            fix_instructions = f"""
-TECHNICAL REVISION REQUIRED. Fix these specific issues:
+            # Use the fact researcher to generate dynamic revision prompt
+            # This includes the specific violations AND the fact sheet as reference
+            dynamic_fix_instructions = fact_researcher.format_for_revision(
+                fact_sheet=fact_sheet,
+                violations=tech_result.get("violations", [])
+            )
 
-{tech_result['summary']}
+            revision_prompt = f"""REVISE THIS DRAFT - Technical issues detected.
 
-RULES FOR REVISION:
-1. REMOVE all uncited statistics (40%, 30%, etc.) - either cite a real source or delete
-2. FIX or REMOVE broken code examples - code must actually run
-3. REMOVE causally impossible claims (e.g., "architecture improved accuracy")
-4. REPLACE vague "studies show" with specific sources OR rephrase as opinion
-5. DO NOT invent new statistics to replace removed ones
+CURRENT DRAFT:
+{draft}
 
+{dynamic_fix_instructions}
+
+CRITICAL: Do NOT invent new numbers to replace removed ones.
+If a fact is not in the FACT SHEET, write around it with opinion/observation.
 Keep the same structure but make it TECHNICALLY HONEST.
 """
-            draft = writer.call_llm(f"Revise this draft:\n\n{draft}\n\n{fix_instructions}")
+            draft = writer.call_llm(revision_prompt)
             print(f"   ✓ Revision complete ({len(draft)} chars)")
         else:
             print(f"   ⚠️  Max revisions reached. Proceeding with current draft.")

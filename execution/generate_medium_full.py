@@ -19,7 +19,7 @@ from execution.agents.editor import EditorAgent
 from execution.agents.critic import CriticAgent
 from execution.agents.writer import WriterAgent
 from execution.agents.visuals import VisualsAgent
-from execution.agents.fact_researcher import FactResearchAgent
+from execution.agents.gemini_researcher import GeminiResearchAgent
 from execution.prompts.voice_templates import get_voice_prompt, EXTERNAL_VOICE_PROMPT, INTERNAL_VOICE_PROMPT
 
 # Ensure output directory
@@ -45,38 +45,58 @@ def main():
 
     # 1. Initialize Agents
     print("🤖 Initializing Agents...")
-    editor = EditorAgent()
-    critic = CriticAgent()
-    writer = WriterAgent()
-    visuals = VisualsAgent()
-    fact_researcher = FactResearchAgent()
-    print("   ✓ Agents Ready: Editor, Critic, Writer, Visuals, FactResearcher")
+    editor = EditorAgent()       # Groq - fast inference
+    critic = CriticAgent()       # Groq - fast inference
+    writer = WriterAgent()       # Groq - fast inference
+    visuals = VisualsAgent()     # Vertex AI - image generation
 
-    # 1.5 FACT RESEARCH PHASE (Critical for avoiding hallucination)
-    print(f"\n🔍 [Fact Researcher] Gathering verified facts for: '{args.topic}'...")
+    # Gemini Researcher - uses Google Search Grounding for REAL fact verification
+    try:
+        gemini_researcher = GeminiResearchAgent(model="gemini-2.5-flash")
+        print("   ✓ Agents Ready: Editor, Critic, Writer, Visuals, GeminiResearcher")
+    except Exception as e:
+        print(f"   ⚠️  GeminiResearcher unavailable: {e}")
+        gemini_researcher = None
+        print("   ✓ Agents Ready: Editor, Critic, Writer, Visuals (no research)")
 
-    # Research the topic to get verified facts
-    # TODO: Integrate real web search function (e.g., Tavily, SerpAPI, or built-in WebSearch)
-    fact_sheet = fact_researcher.research(
-        topic=args.topic,
-        source_content=args.source_content,
-        web_search_func=None  # Pass search function when available
-    )
+    # 1.5 FACT RESEARCH PHASE (Gemini + Google Search Grounding)
+    fact_sheet = {}
+    fact_constraints = ""
 
-    # Get constraints for the Writer
-    fact_constraints = fact_sheet.get("writer_constraints", "")
+    if gemini_researcher:
+        print(f"\n🔍 [Gemini Researcher] Searching Google for facts on: '{args.topic}'...")
 
-    verified_count = len(fact_sheet.get("verified_facts", []))
-    unverified_count = len(fact_sheet.get("unverified_claims", []))
-    unknown_count = len(fact_sheet.get("unknowns", []))
+        try:
+            # Use Gemini's Google Search Grounding for REAL research
+            fact_sheet = gemini_researcher.research_topic(
+                topic=args.topic,
+                source_content=args.source_content
+            )
 
-    print(f"   ✓ Research Complete:")
-    print(f"      Verified Facts: {verified_count}")
-    print(f"      Unverified (DO NOT USE): {unverified_count}")
-    print(f"      Unknowns: {unknown_count}")
+            # Get constraints for the Writer
+            fact_constraints = fact_sheet.get("writer_constraints", "")
 
-    if verified_count == 0:
-        print(f"   ⚠️  NO VERIFIED FACTS - Writer will avoid specific claims")
+            verified_count = len(fact_sheet.get("verified_facts", []))
+            unverified_count = len(fact_sheet.get("unverified_claims", []))
+            unknown_count = len(fact_sheet.get("unknowns", []))
+
+            print(f"   ✓ Research Complete (via Google Search):")
+            print(f"      Verified Facts: {verified_count}")
+            print(f"      Unverified (DO NOT USE): {unverified_count}")
+            print(f"      Unknowns: {unknown_count}")
+
+            # Show search queries used
+            if fact_sheet.get("grounding_metadata", {}).get("search_queries"):
+                print(f"      Searches: {fact_sheet['grounding_metadata']['search_queries'][:3]}")
+
+            if verified_count == 0:
+                print(f"   ⚠️  NO VERIFIED FACTS - Writer will avoid specific claims")
+
+        except Exception as e:
+            print(f"   ⚠️  Research failed: {e}")
+            print(f"   ⚠️  Writer will proceed without fact sheet")
+    else:
+        print(f"\n⚠️  Skipping research phase (Gemini not configured)")
 
     # 2. Strategy Phase
     print(f"\n🧠 [Editor] Planning article on: '{args.topic}'...")
@@ -132,52 +152,90 @@ If you need a fact not in the sheet, write with conviction but WITHOUT fabricati
     draft = writer.write_section(refined_outline, critique=f"Prepare the full draft.\n{writer_context}")
     print(f"   ✓ First Draft Complete ({len(draft)} chars)")
 
-    # 3.5. Technical Quality Gate (catches fabricated stats, broken code, etc.)
-    from execution.agents.technical_supervisor import TechnicalSupervisorAgent
+    # 3.5. VERIFICATION PHASE - Use Gemini to verify draft against real sources
+    print(f"\n🔬 [Verification] Checking draft accuracy...")
 
-    print(f"\n🔬 [Technical Supervisor] Validating technical accuracy...")
-    tech_supervisor = TechnicalSupervisorAgent()
+    MAX_REVISIONS = 2
+    for attempt in range(MAX_REVISIONS + 1):
+        # Use Gemini to verify the draft against Google Search
+        if gemini_researcher:
+            print(f"   🔍 [Gemini] Verifying claims via Google Search...")
+            verification = gemini_researcher.verify_draft(draft, topic=args.topic)
 
-    MAX_TECH_REVISIONS = 2
-    for tech_attempt in range(MAX_TECH_REVISIONS + 1):
-        tech_result = tech_supervisor.validate(draft, topic=args.topic)
+            accuracy_score = verification.get("overall_accuracy_score", 0)
+            recommendation = verification.get("recommendation", "REJECT")
+            false_claims = verification.get("false_claims", [])
+            unverifiable = verification.get("unverifiable_claims", [])
 
-        if tech_result["passed"]:
-            print(f"   ✓ Technical validation PASSED (Score: {tech_result['score']}/100)")
-            break
+            print(f"   📊 Accuracy Score: {accuracy_score}/100")
+            print(f"   📋 Recommendation: {recommendation}")
+            print(f"      False claims: {len(false_claims)}")
+            print(f"      Unverifiable: {len(unverifiable)}")
 
-        print(f"   ⚠️  Technical issues found (Score: {tech_result['score']}/100)")
-        print(f"      Critical: {tech_result['critical_count']}, Major: {tech_result['major_count']}")
+            if recommendation == "PASS":
+                print(f"   ✓ Verification PASSED")
+                break
 
-        if tech_attempt < MAX_TECH_REVISIONS:
-            # DYNAMIC REVISION: Generate targeted fix instructions based on WHAT failed
-            print(f"   🔄 Revision {tech_attempt + 1}/{MAX_TECH_REVISIONS}...")
+            if attempt < MAX_REVISIONS:
+                print(f"   🔄 Revision {attempt + 1}/{MAX_REVISIONS}...")
 
-            # Use the fact researcher to generate dynamic revision prompt
-            # This includes the specific violations AND the fact sheet as reference
-            dynamic_fix_instructions = fact_researcher.format_for_revision(
-                fact_sheet=fact_sheet,
-                violations=tech_result.get("violations", [])
-            )
+                # Get specific revision instructions from Gemini
+                revision_instructions = verification.get("revision_instructions", "")
 
-            revision_prompt = f"""REVISE THIS DRAFT - Technical issues detected.
+                revision_prompt = f"""REVISE THIS DRAFT - Verification failed.
 
 CURRENT DRAFT:
 {draft}
 
-{dynamic_fix_instructions}
+{revision_instructions}
 
-CRITICAL: Do NOT invent new numbers to replace removed ones.
-If a fact is not in the FACT SHEET, write around it with opinion/observation.
-Keep the same structure but make it TECHNICALLY HONEST.
-"""
-            draft = writer.call_llm(revision_prompt)
-            print(f"   ✓ Revision complete ({len(draft)} chars)")
+{fact_constraints}
+
+CRITICAL RULES:
+1. REMOVE or CORRECT all false claims listed above
+2. REMOVE or HEDGE all unverifiable claims
+3. DO NOT invent new numbers to replace removed ones
+4. Use the FACT SHEET as your source of truth
+5. Write with conviction but WITHOUT fabrication
+
+Keep the same structure. Make it TECHNICALLY HONEST."""
+
+                draft = writer.call_llm(revision_prompt)
+                print(f"   ✓ Revision complete ({len(draft)} chars)")
+            else:
+                print(f"   ⚠️  Max revisions reached. Proceeding with current draft.")
+
         else:
-            print(f"   ⚠️  Max revisions reached. Proceeding with current draft.")
-            # Also run deep review to log domain issues
-            deep_review = tech_supervisor.deep_review(draft, topic=args.topic)
-            print(f"\n   📋 Deep Review:\n{deep_review[:500]}...")
+            # Fallback to Technical Supervisor (pattern-based) if Gemini unavailable
+            from execution.agents.technical_supervisor import TechnicalSupervisorAgent
+            tech_supervisor = TechnicalSupervisorAgent()
+
+            tech_result = tech_supervisor.validate(draft, topic=args.topic)
+
+            if tech_result["passed"]:
+                print(f"   ✓ Technical validation PASSED (Score: {tech_result['score']}/100)")
+                break
+
+            print(f"   ⚠️  Issues found (Score: {tech_result['score']}/100)")
+
+            if attempt < MAX_REVISIONS:
+                print(f"   🔄 Revision {attempt + 1}/{MAX_REVISIONS}...")
+                revision_prompt = f"""REVISE THIS DRAFT - Technical issues detected.
+
+CURRENT DRAFT:
+{draft}
+
+ISSUES:
+{tech_result['summary']}
+
+{fact_constraints}
+
+Remove fabricated stats. Fix or remove suspicious claims. Be honest."""
+
+                draft = writer.call_llm(revision_prompt)
+                print(f"   ✓ Revision complete ({len(draft)} chars)")
+            else:
+                print(f"   ⚠️  Max revisions reached.")
 
     # 4. Specialist Refinement (Natural Voice Pipeline)
     from execution.agents.specialist import SpecialistAgent

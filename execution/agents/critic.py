@@ -185,9 +185,14 @@ FIX INSTRUCTIONS:
 """
         return self.call_llm(prompt)
 
-    def critique_full_draft(self, draft: str, platform: str = "medium") -> dict:
+    def critique_full_draft(self, draft: str, platform: str = "medium", source_type: str = "external") -> dict:
         """
         Comprehensive critique of a full draft.
+
+        Args:
+            draft: The content to critique
+            platform: 'linkedin' or 'medium'
+            source_type: 'external' (observer voice) or 'internal' (owner voice)
 
         Returns dict with score, violations, failures, and fixes.
         """
@@ -204,10 +209,27 @@ FIX INSTRUCTIONS:
 These MUST be fixed. Score capped at 4 until resolved.
 """
 
+        # Voice context for LLM-based validation
+        if source_type == "external":
+            voice_section = """
+**CRITICAL: VOICE/OWNERSHIP CHECK** (External Source)
+This content is sourced from Reddit/external community. The author did NOT build this.
+- INSTANT FAILURE if you find: "I built", "we created", "our team", "my approach", "we discovered"
+- ACCEPTABLE: "teams found", "engineers discovered", "this approach", "the implementation"
+- "I" ONLY allowed for observations: "I noticed", "I've observed", "I find this interesting"
+- Scan the ENTIRE draft for ownership claims. Even ONE instance is a critical failure.
+"""
+        else:
+            voice_section = """
+**VOICE NOTE** (Internal Source - Author's Own Work)
+Ownership voice ("I built", "we created", "our team") is appropriate for this content.
+"""
+
         prompt = f"""
 You are reviewing a {platform} draft for publication readiness.
 
 {violation_section}
+{voice_section}
 
 DRAFT:
 ---
@@ -242,7 +264,13 @@ Score: X/10
 - Any jarring tonal shifts?
 Score: X/10
 
-**6. CTA QUALITY TEST**
+**6. VOICE/OWNERSHIP TEST** (CRITICAL for external sources)
+- List any ownership claims found ("I built", "we created", "our team", etc.):
+- Are ownership claims appropriate for the source type?
+- If external source: ANY ownership claim = automatic failure
+Score: X/10
+
+**7. CTA QUALITY TEST**
 - Quote the CTA:
 - Is it specific or generic?
 Score: X/10

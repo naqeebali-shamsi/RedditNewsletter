@@ -977,6 +977,7 @@ def init_session_state():
         'is_running': False,
         'viewing_history': None,  # Currently viewed history file
         'data_source': 'reddit',  # 'reddit' or 'github'
+        'custom_topic': '',  # User-provided custom topic
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -1150,15 +1151,16 @@ def copy_to_clipboard(text: str, button_text: str = "Copy", key: str = "copy_btn
     ''', height=50)
 
 
-def run_full_pipeline(progress_callback, status_callback):
+def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
     """
     Run the COMPLETE automated pipeline:
     1. Topic Research Agent selects best topic
     2. Full article generation with all agents
-    3. Visual generation
+    3. Quality Gate (adversarial review loop)
+    4. Visual generation
 
     Returns:
-        dict with content, filepath, topic info, images
+        dict with content, filepath, topic info, images, quality_result
     """
     from execution.agents.topic_researcher import TopicResearchAgent
     from execution.agents.editor import EditorAgent
@@ -1166,6 +1168,7 @@ def run_full_pipeline(progress_callback, status_callback):
     from execution.agents.writer import WriterAgent
     from execution.agents.specialist import SpecialistAgent
     from execution.agents.visuals import VisualsAgent
+    from execution.quality_gate import QualityGate
 
     output_dir = Path("n:/RedditNews/drafts")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1173,7 +1176,25 @@ def run_full_pipeline(progress_callback, status_callback):
     # PHASE 1: TOPIC RESEARCH (0-10%)
     data_source = st.session_state.get('data_source', 'reddit')
 
-    if data_source == 'github':
+    # CRITICAL: Determine voice type based on data source
+    # Reddit/external = observer voice (NEVER claim ownership)
+    # GitHub/internal = practitioner voice (CAN claim ownership)
+    source_type = "internal" if data_source == "github" else "external"
+
+    if provided_topic:
+        status_callback(f"Using provided topic: {provided_topic[:30]}...")
+        progress_callback(0.05)
+        
+        topic_agent = TopicResearchAgent()
+        # Use provided topic but still let agent find an angle
+        topics = [{'title': provided_topic, 'subreddit': 'custom'}]
+        selected = topic_agent.analyze_and_select(topics)
+        
+        topic = selected['title']
+        topic_reasoning = selected.get('reasoning', '')
+        topic_angle = selected.get('angle', '')
+
+    elif data_source == 'github':
         # GitHub commit analysis
         from execution.agents.commit_analyzer import CommitAnalysisAgent
         from execution.fetch_github import fetch_repo_commits
@@ -1270,40 +1291,74 @@ def run_full_pipeline(progress_callback, status_callback):
     # PHASE 5: DRAFT (30-50%)
     status_callback("Writing first draft...")
     progress_callback(0.35)
-    draft = writer.write_section(refined_outline, critique="Write the full article draft.")
+    # Pass source_type to ensure correct voice (external=observer, internal=owner)
+    draft = writer.write_section(refined_outline, critique="Write the full article draft.", source_type=source_type)
     progress_callback(0.50)
 
     # PHASE 6: SPECIALISTS (50-75%)
+    # Voice-specific instructions based on source type
+    if source_type == "internal":
+        storytelling_instruction = """Your job is to make this feel like it's written by a REAL engineer, not an AI.
+
+1. Add 1-2 brief personal moments: a frustration, a realization, a late-night debugging session.
+   Keep these SHORT (2-3 sentences max) and weave them naturally into transitions.
+2. Use "I" and "we" to create conversation - "I've seen this pattern fail" or "We hit this wall"
+3. The personality should feel like a smart colleague explaining something over coffee, not a textbook.
+
+Do NOT add fake-sounding stories. If it feels forced, cut it."""
+
+        voice_instruction = """Your job is to make this sound like ONE consistent, authentic PRACTITIONER.
+
+1. Remove anything that sounds like corporate speak, marketing jargon, or AI-generated filler.
+2. You ARE the person who did this work - "I", "we", "our" are encouraged
+3. Add subtle wit where natural - a wry observation, a knowing aside. NOT forced jokes.
+4. Vary sentence rhythm: mix punchy short sentences with longer explanations.
+5. The tone should be: confident but not arrogant, technical but accessible, opinionated but fair.
+
+Read it aloud - if it sounds like a robot wrote it, rewrite those parts."""
+
+    else:  # external source - OBSERVER voice
+        storytelling_instruction = """Your job is to make this feel like it's written by a REAL tech journalist, not an AI.
+
+CRITICAL: You are an OBSERVER. You did NOT build this. Never claim ownership.
+
+1. Add narrative tension through OTHERS' experiences: "The team hit a wall", "Engineers discovered..."
+2. Use "you" to engage readers - "You've probably hit this wall"
+3. FORBIDDEN: "I built", "we created", "our team", "my approach"
+4. ALLOWED: "I noticed", "I've been tracking", "I find this interesting" (observations only)
+5. The personality should feel like a knowledgeable journalist sharing insights.
+
+Do NOT add fake ownership claims. If you catch yourself writing "we built" or "I created", STOP and rewrite."""
+
+        voice_instruction = """Your job is to make this sound like ONE consistent, authentic OBSERVER/JOURNALIST.
+
+CRITICAL VOICE CHECK - You are NOT the builder, you are REPORTING on others' work:
+- FORBIDDEN: "I built", "we created", "our team", "my approach", "we discovered"
+- USE INSTEAD: "teams found", "engineers discovered", "this approach", "the implementation"
+- ALLOWED: "I noticed", "I've observed", "I find this interesting" (observations only)
+
+1. Remove anything that sounds like corporate speak, marketing jargon, or AI-generated filler.
+2. Scan for ANY ownership claims ("I built", "we created", "our") and replace with observer language.
+3. Add subtle wit where natural - a wry observation, a knowing aside. NOT forced jokes.
+4. Vary sentence rhythm: mix punchy short sentences with longer explanations.
+5. The tone should be: confident but not arrogant, technical but accessible, authoritative but fair.
+
+FINAL CHECK: Read through and ensure NO "we built", "I created", "our team" phrases remain."""
+
     specialists = [
         ("Hook Specialist", "Optimizing title and hook...",
          """Your job is to make readers STOP scrolling.
 
 1. Rewrite the title to create curiosity or promise transformation.
-   Examples of good patterns: "Why I stopped X and started Y", "The X that nobody talks about", "What 3 years of X taught me about Y"
+   Examples of good patterns: "Why teams are stopping X and starting Y", "The X that nobody talks about", "What engineers learned from X"
 2. The opening line should feel like the start of a conversation, not a thesis statement.
 3. The hook should make the reader think "this person gets it" within 10 seconds.
 
 Keep the author's voice - don't make it sound like marketing copy."""),
 
-        ("Storytelling Architect", "Adding authentic narrative...",
-         """Your job is to make this feel like it's written by a REAL engineer, not an AI.
+        ("Storytelling Architect", "Adding authentic narrative...", storytelling_instruction),
 
-1. Add 1-2 brief personal moments: a frustration, a realization, a late-night debugging session.
-   Keep these SHORT (2-3 sentences max) and weave them naturally into transitions.
-2. Use "I" and "you" to create conversation - "I've seen this pattern fail" or "You've probably hit this wall"
-3. The personality should feel like a smart colleague explaining something over coffee, not a textbook.
-
-Do NOT add fake-sounding stories. If it feels forced, cut it."""),
-
-        ("Voice & Tone Specialist", "Refining voice...",
-         """Your job is to make this sound like ONE consistent, authentic person.
-
-1. Remove anything that sounds like corporate speak, marketing jargon, or AI-generated filler.
-2. Add subtle wit where natural - a wry observation, a knowing aside. NOT forced jokes.
-3. Vary sentence rhythm: mix punchy short sentences with longer explanations.
-4. The tone should be: confident but not arrogant, technical but accessible, opinionated but fair.
-
-Read it aloud - if it sounds like a robot wrote it, rewrite those parts."""),
+        ("Voice & Tone Specialist", "Refining voice...", voice_instruction),
 
         ("Value Density Specialist", "Ensuring takeaways...",
          """Your job is to make every paragraph EARN its place.
@@ -1328,9 +1383,21 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
 
     # PHASE 7: POLISH (75-80%)
     status_callback("Final polish...")
+
+    # Voice-aware final polish instruction
+    if source_type == "internal":
+        final_polish_voice = """
+7. VOICE CHECK: This is a practitioner piece - "I", "we", "our" are appropriate and encouraged."""
+    else:
+        final_polish_voice = """
+7. CRITICAL VOICE CHECK: This is an OBSERVER piece (Reddit source).
+   - SCAN AND FIX any "I built", "we created", "our team", "my approach" phrases
+   - Replace with: "teams found", "engineers discovered", "this approach", "the implementation"
+   - ONLY allowed: "I noticed", "I've observed" (observations, not ownership)"""
+
     polisher = SpecialistAgent(
         constraint_name="Final Editor",
-        constraint_instruction="""Final pass before publication. Your job is COHESION and CLEAN OUTPUT.
+        constraint_instruction=f"""Final pass before publication. Your job is COHESION and CLEAN OUTPUT.
 
 1. Strip ALL internal labels, metadata markers, section tags, and any "Value-Bait:", "Hook:", etc. prefixes.
 2. Format first line as # H1 Title (clean, no labels).
@@ -1338,20 +1405,36 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
 4. Remove any repetitive phrases or ideas that got duplicated across specialist passes.
 5. If there are forced bullet lists that interrupt flow, convert them to natural prose.
 6. The final piece should read like ONE person wrote it in ONE sitting - not a committee.
+{final_polish_voice}
 
 Output ONLY the polished markdown. No explanations, no meta-commentary."""
     )
     draft = polisher.refine(draft)
     progress_callback(0.80)
 
-    # PHASE 8: FINAL REVIEW (80-85%)
-    status_callback("Quality check...")
-    review = editor.review_draft(draft, "Full Article Post-Specialists")
-    if "REVISE" in review:
-        draft = writer.call_llm(f"Apply corrections:\n{review}\n\nDraft:\n{draft}")
-    progress_callback(0.85)
+    # PHASE 8: QUALITY GATE (80-92%)
+    # Adversarial expert panel review with REVIEW <-> FIX loop
+    status_callback("Quality gate review...")
+    progress_callback(0.82)
 
-    # PHASE 9: VISUALS (85-95%)
+    quality_gate = QualityGate(max_iterations=3, verbose=False)
+    quality_result = quality_gate.process(
+        content=draft,
+        platform="medium",
+        source_type=source_type  # Pass voice context
+    )
+
+    # Use the quality-gated content
+    draft = quality_result.final_content
+
+    if quality_result.passed:
+        status_callback(f"Quality gate passed ({quality_result.final_score}/10)")
+    else:
+        status_callback(f"Escalated for review ({quality_result.final_score}/10)")
+
+    progress_callback(0.92)
+
+    # PHASE 9: VISUALS (92-98%)
     status_callback("Generating visuals...")
     visual_plan = visuals.suggest_visuals(draft)
     image_paths = []
@@ -1361,7 +1444,7 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
         images_dir = output_dir / "images"
         image_paths = visuals.generate_all_visuals(visual_plan, output_dir=str(images_dir))
 
-    progress_callback(0.95)
+    progress_callback(0.98)
 
     # PHASE 10: SAVE (95-100%)
     status_callback("Saving...")
@@ -1397,6 +1480,9 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
         'topic': topic,
         'topic_reasoning': topic_reasoning,
         'topic_angle': topic_angle,
+        'quality_score': quality_result.final_score,
+        'quality_passed': quality_result.passed,
+        'quality_iterations': quality_result.iterations_used,
     }
 
 
@@ -1414,6 +1500,7 @@ def main():
             st.session_state.viewing_history = None
             st.session_state.generation_complete = False
             st.session_state.article_content = None
+            st.session_state.custom_topic = ""
             st.rerun()
 
         st.divider()
@@ -1585,6 +1672,39 @@ def main():
 </div>'''
         st.markdown(hero_html, unsafe_allow_html=True)
 
+        # Topic customization - ONLY visible when not running
+        if not st.session_state.is_running:
+            st.markdown('<p class="section-header">Customize Your Content</p>', unsafe_allow_html=True)
+            
+            # Simple text input with manual sync to avoid rerun loops
+            topic_input = st.text_input(
+                "What do you want to write about?",
+                value=st.session_state.custom_topic,
+                placeholder="e.g. Scaling Postgres to 10M users, The future of Web3, etc.",
+                help="Leave empty to let the AI research trending topics for you."
+            )
+            if topic_input != st.session_state.custom_topic:
+                st.session_state.custom_topic = topic_input
+                st.rerun()
+
+            # Suggested topics organized as small chips
+            suggestions = [
+                "Scaling Postgres to 10M",
+                "Why Rust for Infrastructure",
+                "System Design Mastery",
+                "The 2026 Developer Market",
+                "Clean Architecture in 2026"
+            ]
+            
+            st.markdown('<p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: -0.5rem; margin-bottom: 0.5rem;">Or try a suggestion:</p>', unsafe_allow_html=True)
+            cols = st.columns(len(suggestions))
+            for i, suggestion in enumerate(suggestions):
+                if cols[i].button(suggestion, key=f"sug_{i}", use_container_width=True):
+                    st.session_state.custom_topic = suggestion
+                    st.rerun()
+
+            st.divider()
+
         # Generate button - centered and prominent
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
@@ -1639,7 +1759,7 @@ def main():
                 "Draft": {"icon": icon_note, "name": "Writer Agent"},
                 "Specialists": {"icon": icon_target, "name": "Specialist Team"},
                 "Polish": {"icon": icon_sparkle, "name": "Polish Agent"},
-                "Review": {"icon": icon_magnify, "name": "Review Agent"},
+                "Quality Gate": {"icon": icon_magnify, "name": "Expert Panel"},
                 "Visuals": {"icon": icon_palette, "name": "Visuals Agent"},
                 "Complete": {"icon": icon_check, "name": "Complete"},
             }
@@ -1666,8 +1786,8 @@ def main():
                     (0.50, "Draft"),
                     (0.75, "Specialists"),
                     (0.80, "Polish"),
-                    (0.85, "Review"),
-                    (0.95, "Visuals"),
+                    (0.92, "Quality Gate"),
+                    (0.98, "Visuals"),
                     (1.00, "Complete"),
                 ]
 
@@ -1720,7 +1840,7 @@ def main():
                 pass  # Status is now integrated into the progress card
 
             try:
-                result = run_full_pipeline(update_progress, update_status)
+                result = run_full_pipeline(update_progress, update_status, provided_topic=st.session_state.get('custom_topic'))
 
                 st.session_state.generation_complete = True
                 st.session_state.article_content = result['content']

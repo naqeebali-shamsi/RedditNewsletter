@@ -1,6 +1,6 @@
-# Reddit Newsletter System
+# GhostWriter
 
-An autonomous content production pipeline that extracts high-signal posts from AI engineering subreddits and converts them into LinkedIn posts and Medium articles.
+An autonomous AI ghostwriting pipeline that extracts high-signal posts from AI engineering subreddits and converts them into LinkedIn posts and Medium articles.
 
 ## 🎯 Purpose
 

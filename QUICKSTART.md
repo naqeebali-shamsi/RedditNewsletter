@@ -2,10 +2,11 @@
 
 ## 🚀 Daily Workflow
 
-### Option 1: Run Complete Pipeline (Recommended)
+### Option 1: Streamlit Web UI (Recommended)
 ```bash
-python run_pipeline.py
+streamlit run app.py
 ```
+This launches the GhostWriter dashboard for full article generation with visual progress tracking.
 
 ### Option 2: Run Individual Steps
 ```bash
@@ -49,6 +50,18 @@ python execution/evaluate_posts.py
 python execution/evaluate_posts.py --limit 100
 ```
 
+## 1. Generate Medium Article ("The Agency")
+
+Run the multi-agent pipeline to generate a high-quality article with infographics.
+
+```powershell
+python -m execution.generate_medium_full --topic "Your Topic Here"
+```
+
+**Output:**
+- Draft: `drafts/medium_full_[date].md`
+- Visuals Dashboard: `drafts/visuals_dashboard.html` (Open in browser to gen images)
+
 ### Generating Drafts
 
 ```bash
@@ -66,29 +79,36 @@ python execution/generate_drafts.py --platform medium --limit 5
 
 ## 🎯 Quick Modes
 
-### Quick Mode (Fast iteration)
+### Streamlit Dashboard (Full Featured)
 ```bash
-python run_pipeline.py --quick
-# Evaluates 20 posts, generates 5 drafts
+streamlit run app.py
+# Interactive UI with 10-phase article generation pipeline
 ```
 
-### Full Mode (Maximum coverage)
+### CLI: Generate Medium Article
 ```bash
-python run_pipeline.py --all
-# Fetches from all subreddits, evaluates 50, generates 10
+python -m execution.generate_medium_full --topic "Your Topic"
+# Generates article + visuals dashboard
 ```
 
-### Evaluation Only (Skip fetch & generate)
+### CLI: Quick Draft Generation
 ```bash
-python run_pipeline.py --skip-fetch --skip-generate
-# Only evaluates existing posts
+python execution/generate_drafts.py --platform both --limit 5
+# Fast batch generation for LinkedIn/Medium
 ```
 
 ---
 
 ## 🔧 Setup (One-time)
 
-1. **Install dependencies**:
+1. **Set up Virtual Environment (Recommended)**:
+   ```bash
+   python -m venv .venv
+   .\.venv\Scripts\activate  # Windows
+   source .venv/bin/activate  # Linux/Mac
+   ```
+
+2. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
@@ -187,8 +207,8 @@ sqlite3 reddit_content.db "SELECT is_signal, COUNT(*) FROM evaluations GROUP BY 
 
 ## 🔄 Next Steps
 
-1. **First run**: `python run_pipeline.py`
-2. **Review drafts**: Check `.tmp/drafts/`
+1. **First run**: `streamlit run app.py` or `python -m execution.generate_medium_full`
+2. **Review drafts**: Check `drafts/` folder
 3. **Edit & publish**: Customize and post to LinkedIn/Medium
 4. **Iterate**: Adjust evaluation criteria based on results
 5. **Automate**: Set up scheduled tasks (cron/Task Scheduler)

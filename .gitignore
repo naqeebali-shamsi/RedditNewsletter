@@ -52,3 +52,12 @@ env/
 # Google OAuth credentials (if added later)
 credentials.json
 token.json
+
+# Claude IDE local settings
+.claude/
+
+# Drafts and generated outputs
+drafts/
+
+# Application logs
+logs/

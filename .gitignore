@@ -11,6 +11,7 @@ reddit_content.db
 # Temporary files
 .tmp/
 *.tmp
+*.tmp.*
 *.log
 
 # Python
@@ -54,7 +55,16 @@ credentials.json
 token.json
 
 # Claude IDE local settings
-.claude/
+.claude/settings.local.json
+
+# Playwright MCP screenshots
+.playwright-mcp/
+
+# LangGraph checkpoints
+.ghostwriter_checkpoints.db
+
+# Windows artifacts
+nul
 
 # Drafts and generated outputs
 drafts/

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article type="technical">
+  <name>{{article_name}}</name>
+  <files>articles/{{article_slug}}.md</files>
+  <action>
+    Research: {{research_tasks}}
+    Draft: {{draft_tasks}}
+    Review: {{review_tasks}}
+    Assets: Generate hero image prompt using /generate-image-prompt (ByteByteGo style, mandatory)
+  </action>
+  <verify>
+    - Hook challenges status quo
+    - Contains war story ("I built, I broke")
+    - Max 3 lines per paragraph (LinkedIn) or appropriate limit for content type
+    - No meta-labels in headers
+    - Minimum 3 high-value takeaways
+    - Passes voice check (minimize passive voice, no academic fluff)
+    - **Hero image prompt included** (ByteByteGo style, mandatory)
+  </verify>
+  <done>{{completion_criteria}}</done>
+</article>

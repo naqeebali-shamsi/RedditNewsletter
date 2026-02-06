@@ -1,0 +1,42 @@
+{
+  "author": "naqeebali",
+  "version": "1.0",
+  "created_at": "2026-02-06",
+  "baseline_metrics": {
+    "avg_sentence_length": null,
+    "sentence_length_std": null,
+    "burstiness_ratio": null,
+    "vocd_score": null,
+    "ttr": null
+  },
+  "forbidden_phrases": [
+    "In this post, we will explore",
+    "Furthermore, it is important",
+    "In conclusion, we have seen",
+    "It is worth mentioning",
+    "As we can see from the above",
+    "Transitioning to",
+    "Let's dive in",
+    "without further ado",
+    "In today's fast-paced world",
+    "It is important to note",
+    "It goes without saying",
+    "Needless to say",
+    "At the end of the day",
+    "In this article",
+    "As mentioned earlier",
+    "Moving forward"
+  ],
+  "required_markers": {
+    "war_story_keywords": ["I built", "I broke", "we encountered", "pager duty", "context leak", "we built", "we broke", "I debugged", "I discovered", "we learned", "I spent", "we saw", "the gotcha", "in production", "I watched"],
+    "min_war_stories_per_article": 1,
+    "ownership_pronouns": ["I", "we", "our", "my"]
+  },
+  "thresholds": {
+    "publish": 80,
+    "revision": 60,
+    "rejection": 0
+  },
+  "updated_at": null,
+  "calibrated_from": null
+}

@@ -83,6 +83,31 @@ python execution/generate_drafts.py --platform both --limit 10
 
 ---
 
+### 4. Writing Framework Gates (`directives/framework_rules.md`)
+**Purpose**: Apply the 5-Pillar Architected Writing Framework to ensure quality.
+
+**Pre-Generation Gate** (before draft):
+- Define the "Status Quo" being challenged (Contrast Hook)
+- Identify the war story to weave in (Human Variable)
+- List target takeaways (Takeaway Density)
+
+**Post-Generation Gate** (after draft, before publish):
+- Quality checklist from `framework_rules.md`:
+  1. Does the hook challenge a status quo? (with evidence)
+  2. Is any paragraph over the limit? (LinkedIn: 3 lines, Articles: 4-5 lines)
+  3. Are tradeoffs stated where they exist?
+  4. Does it sound like a battle-scarred engineer, not an AI bot?
+  5. No meta-labels in output?
+- Voice validation: `python execution/validate_voice.py`
+- Style scoring: `python execution/validate_voice.py --score`
+
+**References**:
+- Writing voice & style: `directives/writing_rules.md`
+- 5-Pillar framework: `directives/framework_rules.md`
+- Technical standards: `directives/technical_rules.md`
+
+---
+
 ## Outputs
 - **LinkedIn Posts**: 2-3 per week (Mon, Wed, Fri)
 - **Medium Articles**: 1-2 per month (deep dives)

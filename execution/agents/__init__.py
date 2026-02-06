@@ -16,6 +16,9 @@ from .adversarial_panel import AdversarialPanelAgent, PanelVerdict, ExpertCritiq
 from .technical_supervisor import TechnicalSupervisorAgent
 from .fact_researcher import FactResearchAgent
 from .gemini_researcher import GeminiResearchAgent
+from .perplexity_researcher import PerplexityResearchAgent
+from .fact_verification_agent import FactVerificationAgent, VerificationStatus, FactVerificationReport, verify_article_facts
+from .style_enforcer import StyleEnforcerAgent, StyleScore
 
 __all__ = [
     'BaseAgent',
@@ -32,4 +35,11 @@ __all__ = [
     'TechnicalSupervisorAgent',
     'FactResearchAgent',
     'GeminiResearchAgent',
+    'PerplexityResearchAgent',
+    'FactVerificationAgent',
+    'VerificationStatus',
+    'FactVerificationReport',
+    'verify_article_facts',
+    'StyleEnforcerAgent',
+    'StyleScore',
 ]

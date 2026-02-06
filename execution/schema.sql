@@ -151,3 +151,35 @@ CREATE INDEX IF NOT EXISTS idx_eval_v2_signal ON evaluations_v2(is_signal);
 CREATE INDEX IF NOT EXISTS idx_newsletter_active ON newsletter_senders(is_active);
 CREATE INDEX IF NOT EXISTS idx_audit_type ON audit_log(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(created_at);
+
+-- =============================================================================
+-- Pulse Monitoring System
+-- =============================================================================
+
+-- Pulse aggregation: Daily trend summaries
+CREATE TABLE IF NOT EXISTS pulse_daily (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    top_topics TEXT,
+    sentiment_summary TEXT,
+    content_angles TEXT,
+    source_breakdown TEXT,
+    generated_at INTEGER NOT NULL,
+    UNIQUE(date)
+);
+
+-- Source feed configuration
+CREATE TABLE IF NOT EXISTS pulse_feeds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    url TEXT NOT NULL,
+    fetch_interval_minutes INTEGER DEFAULT 60,
+    is_active BOOLEAN DEFAULT 1,
+    last_fetched_at INTEGER,
+    UNIQUE(url)
+);
+
+-- Indexes for pulse tables
+CREATE INDEX IF NOT EXISTS idx_pulse_date ON pulse_daily(date);
+CREATE INDEX IF NOT EXISTS idx_feeds_active ON pulse_feeds(is_active);

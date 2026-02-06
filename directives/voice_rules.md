@@ -1,3 +1,5 @@
+> **DEPRECATED**: This file's content has been merged into `directives/writing_rules.md`. This file is kept for reference only.
+
 # Voice Transformation Rules
 
 > SOP for source-aware narrative voice in content generation

@@ -23,6 +23,7 @@ class SourceType(str, Enum):
     GMAIL = "gmail"
     GITHUB = "github"
     RSS = "rss"
+    HACKERNEWS = "hackernews"
     MANUAL = "manual"
 
 

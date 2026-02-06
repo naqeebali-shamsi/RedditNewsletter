@@ -31,6 +31,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from execution.agents.adversarial_panel import AdversarialPanelAgent, PanelVerdict
 from execution.agents.writer import WriterAgent
 from execution.agents.editor import EditorAgent
+from execution.agents.fact_verification_agent import FactVerificationAgent, verify_article_facts
+from execution.article_state import ArticleState, VerificationState, update_verification_state
+from execution.config import config
 
 
 @dataclass
@@ -44,6 +47,13 @@ class QualityGateResult:
     revision_history: List[dict]  # Score progression
     escalated: bool  # True if max iterations hit without passing
     timestamp: str
+    # Fact verification fields
+    verification_passed: bool = True
+    verified_claim_count: int = 0
+    unverified_claim_count: int = 0
+    false_claim_count: int = 0
+    verification_summary: str = ""
+    style_score: float = 0.0
 
 
 class QualityGate:
@@ -56,14 +66,57 @@ class QualityGate:
     - EditorAgent (final polish)
     """
 
-    def __init__(self, max_iterations: int = 3, verbose: bool = True):
+    def __init__(self, max_iterations: int = 3, verbose: bool = True, 
+                 require_verification: bool = True):
         self.max_iterations = max_iterations
         self.verbose = verbose
+        self.require_verification = require_verification
 
         # Initialize agents
         self.panel = AdversarialPanelAgent()
         self.writer = WriterAgent()
         self.editor = EditorAgent()
+
+        # Fact verification (optional based on config)
+        self.fact_verifier = None
+        if self.require_verification:
+            try:
+                self.fact_verifier = FactVerificationAgent()
+            except Exception as e:
+                self._log(f"Warning: Fact verification unavailable: {e}")
+
+    def verify_facts(self, content: str, topic: str = "") -> dict:
+        """
+        Run fact verification on content.
+
+        Returns:
+            Dict with verification results and pass/fail status
+        """
+        if not self.fact_verifier:
+            return {
+                "passed": True,
+                "verified_count": 0,
+                "unverified_count": 0,
+                "false_count": 0,
+                "summary": "Fact verification skipped (no provider available)",
+                "claims": [],
+                "results": []
+            }
+
+        try:
+            report = self.fact_verifier.verify_article(content, topic)
+            return report.to_dict()
+        except Exception as e:
+            self._log(f"Fact verification error: {e}")
+            return {
+                "passed": False,
+                "verified_count": 0,
+                "unverified_count": 0,
+                "false_count": 0,
+                "summary": f"Verification failed: {e}",
+                "claims": [],
+                "results": []
+            }
 
     def _log(self, message: str):
         """Print if verbose mode."""
@@ -104,6 +157,53 @@ class QualityGate:
         self._log(f"Max Iterations: {self.max_iterations}")
         self._log(f"Content Length: {len(content)} chars")
         self._log("=" * 60 + "\n")
+
+        # Step 0: Fact verification (if enabled)
+        verification_result = {"passed": True, "verified_count": 0, "unverified_count": 0, "false_count": 0, "summary": ""}
+        if self.require_verification and self.fact_verifier:
+            self._log("🔍 Running fact verification...")
+            try:
+                verification_result = self.verify_facts(current_content, source_context or "")
+                self._log(f"   Verification: {'PASSED' if verification_result.get('passed', False) else 'NEEDS REVIEW'}")
+                self._log(f"   Verified: {verification_result.get('verified_count', 0)}, Unverified: {verification_result.get('unverified_count', 0)}, False: {verification_result.get('false_count', 0)}")
+
+                # Block if verification fails critically (false claims)
+                if verification_result.get('false_count', 0) > 0:
+                    self._log("\n❌ BLOCKING: False claims detected - cannot proceed")
+                    return QualityGateResult(
+                        passed=False,
+                        final_score=0.0,
+                        iterations_used=0,
+                        max_iterations=self.max_iterations,
+                        final_content=current_content,
+                        revision_history=[],
+                        escalated=True,
+                        timestamp=datetime.now().isoformat(),
+                        verification_passed=False,
+                        verified_claim_count=verification_result.get("verified_count", 0),
+                        unverified_claim_count=verification_result.get("unverified_count", 0),
+                        false_claim_count=verification_result.get("false_count", 0),
+                        verification_summary=verification_result.get("summary", "")
+                    )
+            except Exception as e:
+                self._log(f"   Warning: Fact verification failed: {e}")
+                verification_result = {"passed": True, "verified_count": 0, "unverified_count": 0, "false_count": 0, "summary": f"Verification skipped: {e}"}
+
+        # Step 0.5: Style enforcement scoring (if available)
+        style_result = None
+        try:
+            from execution.agents.style_enforcer import StyleEnforcerAgent
+            style_enforcer = StyleEnforcerAgent(
+                profile_path=str(Path(__file__).parent / "voice_profile.json")
+            )
+            style_result = style_enforcer.score(current_content, content_type="article" if platform == "medium" else "linkedin")
+            self._log(f"   Style Score: {style_result.total}/100 ({'PASS' if style_result.passed else 'NEEDS WORK'})")
+            if style_result.ai_tells_found:
+                self._log(f"   AI Tells: {len(style_result.ai_tells_found)} found")
+        except ImportError:
+            self._log("   Style enforcement not available (missing dependencies)")
+        except Exception as e:
+            self._log(f"   Style scoring error: {e}")
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -150,7 +250,13 @@ class QualityGate:
                     final_content=final_content,
                     revision_history=revision_history,
                     escalated=False,
-                    timestamp=datetime.now().isoformat()
+                    timestamp=datetime.now().isoformat(),
+                    verification_passed=verification_result.get("passed", True),
+                    verified_claim_count=verification_result.get("verified_count", 0),
+                    unverified_claim_count=verification_result.get("unverified_count", 0),
+                    false_claim_count=verification_result.get("false_count", 0),
+                    verification_summary=verification_result.get("summary", ""),
+                    style_score=style_result.total if style_result else 0.0
                 )
 
             # Step 3: Generate fix instructions and revise
@@ -187,7 +293,13 @@ class QualityGate:
             final_content=current_content,
             revision_history=revision_history,
             escalated=True,
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            verification_passed=verification_result.get("passed", True),
+            verified_claim_count=verification_result.get("verified_count", 0),
+            unverified_claim_count=verification_result.get("unverified_count", 0),
+            false_claim_count=verification_result.get("false_count", 0),
+            verification_summary=verification_result.get("summary", ""),
+            style_score=style_result.total if style_result else 0.0
         )
 
     def _revise_content(

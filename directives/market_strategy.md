@@ -6,6 +6,21 @@
 - **Goal**: Build authority on LinkedIn/Medium to secure a stable AI Engineering role.
 - **Voice**: Practitioner, technical, authoritative but authentic (sharing lessons learned).
 
+## Source Priority
+
+| Priority | Source | Cost | Rate Limits | Best For |
+|----------|--------|------|-------------|----------|
+| 1 | HackerNews API | Free | Unlimited | Engineering trends, 65% negativity bias aligns with Contrast Hook |
+| 2 | RSS Feeds | Free | Unlimited | Broad tech coverage (Lobsters, Dev.to, Hacker Noon, InfoQ) |
+| 3 | Reddit API | Paid | Rate-limited | Deep community sentiment, niche practitioner discussions |
+| 4 | GitHub Trending | Free | Rate-limited | Open source momentum, technical patterns |
+
+### Pulse-Driven Content Selection
+- Topics with 3+ cross-source mentions get priority
+- HN + Reddit overlap = high-signal topic (engineer consensus)
+- RSS-only topics = potential early signals (ahead of community discussion)
+- Use `execution/pulse_aggregator.py` for daily trend summaries
+
 ## Subreddit Tier List
 
 ### S+ Tier (Highest Priority)

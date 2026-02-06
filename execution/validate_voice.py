@@ -152,6 +152,8 @@ def main():
                        help='Exit with error code if violations found')
     parser.add_argument('--json', action='store_true',
                        help='Output violations as JSON')
+    parser.add_argument('--score', action='store_true',
+                       help='Run style enforcement scoring (5-dimension breakdown)')
 
     args = parser.parse_args()
 
@@ -191,6 +193,22 @@ def main():
         if args.fix and violations:
             print("\n")
             print(suggest_fixes(content, violations))
+
+    # Style scoring (new)
+    if hasattr(args, 'score') and args.score:
+        try:
+            from execution.agents.style_enforcer import StyleEnforcerAgent
+            enforcer = StyleEnforcerAgent()
+            result = enforcer.score(content, content_type='article')
+            if args.json:
+                import json as json_mod
+                print(json_mod.dumps(result.to_dict(), indent=2))
+            else:
+                print(enforcer.format_report(result))
+        except ImportError:
+            print("Style scoring requires: pip install lexicalrichness nltk")
+        except Exception as e:
+            print(f"Style scoring error: {e}")
 
     # Exit code
     if args.strict and violations:

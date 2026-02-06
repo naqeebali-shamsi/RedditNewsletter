@@ -196,6 +196,16 @@ try:
 except ImportError:
     pass
 
+try:
+    from . import hackernews_source
+except ImportError:
+    pass
+
+try:
+    from . import rss_source
+except ImportError:
+    pass
+
 
 # Export public API
 __all__ = [

@@ -38,6 +38,20 @@ try:
 except ImportError:
     GMAIL_AVAILABLE = False
 
+# Try to import HackerNews source
+try:
+    from sources.hackernews_source import HackerNewsSource
+    HACKERNEWS_AVAILABLE = True
+except ImportError:
+    HACKERNEWS_AVAILABLE = False
+
+# Try to import RSS source
+try:
+    from sources.rss_source import RSSSource
+    RSS_AVAILABLE = True
+except ImportError:
+    RSS_AVAILABLE = False
+
 # Database path
 DB_PATH = Path(__file__).parent.parent / "reddit_content.db"
 
@@ -352,6 +366,11 @@ def main():
         type=int,
         help="Max items per source",
     )
+    parser.add_argument(
+        "--pulse",
+        action="store_true",
+        help="Pulse mode: fetch from all sources for daily pulse capture",
+    )
 
     args = parser.parse_args()
 
@@ -363,6 +382,16 @@ def main():
     sources = None
     if args.sources:
         sources = [SourceType(s) for s in args.sources]
+
+    # Pulse mode: add HackerNews and RSS to the fetch list
+    if args.pulse:
+        print("Pulse mode: fetching from all sources for daily pulse capture")
+        if sources is None:
+            sources = [SourceType.REDDIT]
+        if HACKERNEWS_AVAILABLE and SourceType.HACKERNEWS not in sources:
+            sources.append(SourceType.HACKERNEWS)
+        if RSS_AVAILABLE and SourceType.RSS not in sources:
+            sources.append(SourceType.RSS)
 
     print(f"\n{'='*60}")
     print("GhostWriter Content Fetch")

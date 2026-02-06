@@ -1,4 +1,6 @@
-# Naqeebali’s Writing Style Guide (Agency Version)
+> **DEPRECATED**: This file's content has been merged into `directives/writing_rules.md`. This file is kept for reference only.
+
+# Naqeebali's Writing Style Guide (Agency Version)
 
 ## 0. Who I Am & What I’m Optimizing For
 

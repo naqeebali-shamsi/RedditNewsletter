@@ -20,5 +20,9 @@ google-genai>=1.52.0
 Pillow
 groq
 
+# Style Enforcement
+lexicalrichness>=0.5
+nltk>=3.8
+
 # Web UI
 streamlit>=1.30.0

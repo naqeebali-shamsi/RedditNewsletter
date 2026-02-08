@@ -3,7 +3,7 @@
 Style Enforcement Agent - Quantitative voice fingerprinting.
 
 Scores content across 5 dimensions to ensure it matches
-the TheWritingStack's unique voice signature.
+GhostWriter's unique voice signature.
 
 Usage:
     from execution.agents.style_enforcer import StyleEnforcerAgent
@@ -72,7 +72,7 @@ class StyleScore:
 
 
 class StyleEnforcerAgent:
-    """Quantitative style enforcement for TheWritingStack voice."""
+    """Quantitative style enforcement for GhostWriter voice."""
 
     # Default forbidden phrases (AI tells)
     DEFAULT_FORBIDDEN = [

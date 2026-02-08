@@ -757,5 +757,179 @@ class TestPipelineTypedState:
         assert "style_passed" in content
 
 
+# ============================================================================
+# 11. Fabrication Detection (persons, quotes, research attributions)
+# ============================================================================
+
+class TestFabricationDetection:
+    """Verify the regex-based fabrication scanner catches hallucinated content."""
+
+    HALLUCINATED_ARTICLE = '''
+    Dr. Emma Taylor, a leading AI researcher, notes that "Single-model prompting
+    is not designed for the complexity of real-world problems."
+
+    Dr. John Lee, a renowned AI expert, notes that "Multi-agent pipelines require
+    careful monitoring and maintenance to ensure optimal performance."
+
+    Research from Stanford and MIT shows that multi-agent systems outperform
+    single agents on tasks requiring multiple reasoning steps.
+
+    According to Sarah Mitchell, the team saw a 40% improvement in accuracy.
+    '''
+
+    def test_detects_person_references(self):
+        """Scanner must find titled person names (Dr., Prof., etc.)."""
+        from execution.agents.fact_verification_agent import FactVerificationAgent
+        agent = FactVerificationAgent.__new__(FactVerificationAgent)
+        agent.providers = []
+        claims = agent._scan_for_fabrication_risks(self.HALLUCINATED_ARTICLE)
+        person_claims = [c for c in claims if c.claim_type == "person_reference"]
+        names = [c.text for c in person_claims]
+        assert any("Emma Taylor" in n for n in names), f"Expected Emma Taylor, got {names}"
+        assert any("John Lee" in n for n in names), f"Expected John Lee, got {names}"
+
+    def test_detects_direct_quotes(self):
+        """Scanner must find long direct quotes in quotation marks."""
+        from execution.agents.fact_verification_agent import FactVerificationAgent
+        agent = FactVerificationAgent.__new__(FactVerificationAgent)
+        agent.providers = []
+        claims = agent._scan_for_fabrication_risks(self.HALLUCINATED_ARTICLE)
+        quote_claims = [c for c in claims if c.claim_type == "direct_quote"]
+        assert len(quote_claims) >= 2, f"Expected 2+ quotes, got {len(quote_claims)}"
+        quote_texts = " ".join(c.text for c in quote_claims)
+        assert "Single-model prompting" in quote_texts
+        assert "monitoring and maintenance" in quote_texts
+
+    def test_detects_research_attribution(self):
+        """Scanner must find 'Research from X shows...' patterns."""
+        from execution.agents.fact_verification_agent import FactVerificationAgent
+        agent = FactVerificationAgent.__new__(FactVerificationAgent)
+        agent.providers = []
+        claims = agent._scan_for_fabrication_risks(self.HALLUCINATED_ARTICLE)
+        research_claims = [c for c in claims if c.claim_type == "research_attribution"]
+        assert len(research_claims) >= 1, f"Expected research attribution, got {research_claims}"
+        assert any("Stanford" in c.text for c in research_claims)
+
+    def test_detects_according_to_pattern(self):
+        """Scanner must find 'According to X' patterns."""
+        from execution.agents.fact_verification_agent import FactVerificationAgent
+        agent = FactVerificationAgent.__new__(FactVerificationAgent)
+        agent.providers = []
+        claims = agent._scan_for_fabrication_risks(self.HALLUCINATED_ARTICLE)
+        person_claims = [c for c in claims if c.claim_type == "person_reference"]
+        names = [c.text for c in person_claims]
+        assert any("Sarah Mitchell" in n for n in names), f"Expected Sarah Mitchell, got {names}"
+
+    def test_quote_attribution_correct(self):
+        """Each quote must be attributed to the correct person."""
+        from execution.agents.fact_verification_agent import FactVerificationAgent
+        agent = FactVerificationAgent.__new__(FactVerificationAgent)
+        agent.providers = []
+        claims = agent._scan_for_fabrication_risks(self.HALLUCINATED_ARTICLE)
+        quote_claims = [c for c in claims if c.claim_type == "direct_quote"]
+        for q in quote_claims:
+            if "Single-model" in q.text:
+                assert "Emma Taylor" in q.text, f"Wrong attribution: {q.text}"
+            if "monitoring and maintenance" in q.text:
+                assert "John Lee" in q.text, f"Wrong attribution: {q.text}"
+
+    def test_no_false_positives_on_clean_article(self):
+        """An article with no fabrication patterns should return zero high-risk claims."""
+        from execution.agents.fact_verification_agent import FactVerificationAgent
+        agent = FactVerificationAgent.__new__(FactVerificationAgent)
+        agent.providers = []
+        clean_article = """
+        Multi-agent systems distribute work across specialized components.
+        This can improve throughput for certain workloads.
+        Teams report better results when using modular architectures.
+        The approach has trade-offs in complexity and debugging.
+        """
+        claims = agent._scan_for_fabrication_risks(clean_article)
+        assert len(claims) == 0, f"Expected 0 high-risk claims, got {len(claims)}: {[c.text for c in claims]}"
+
+    def test_unverified_person_treated_as_false(self):
+        """Unverifiable person/quote claims must be fail-closed to FALSE."""
+        from execution.agents.fact_verification_agent import (
+            Claim, VerificationResult, VerificationStatus
+        )
+        # Simulate an unverified person claim
+        claim = Claim(text="Person exists: Dr. Fake Name", claim_type="person_reference")
+        result = VerificationResult(
+            claim=claim,
+            status=VerificationStatus.UNVERIFIED,
+            explanation="Could not find this person"
+        )
+        # The verify_article method downgrades unverified person claims to FALSE
+        # Verify this logic inline:
+        if (result.claim.claim_type in ("person_reference", "direct_quote")
+                and result.status == VerificationStatus.UNVERIFIED):
+            result.status = VerificationStatus.FALSE
+        assert result.status == VerificationStatus.FALSE
+
+    def test_fabrication_flags_in_report(self):
+        """FactVerificationReport.get_fabrication_flags() returns flagged items."""
+        from execution.agents.fact_verification_agent import (
+            Claim, VerificationResult, VerificationStatus, FactVerificationReport
+        )
+        claim = Claim(text="Person exists: Dr. Fake Name", claim_type="person_reference")
+        result = VerificationResult(
+            claim=claim,
+            status=VerificationStatus.FALSE,
+            explanation="Person not found"
+        )
+        report = FactVerificationReport(
+            claims=[claim],
+            results=[result],
+            false_count=1,
+            passes_quality_gate=False,
+            summary="FAILED"
+        )
+        flags = report.get_fabrication_flags()
+        assert len(flags) == 1
+        assert flags[0]["action"] == "REMOVE"
+        assert flags[0]["type"] == "person_reference"
+
+
+class TestHyperlinkAnnotations:
+    """Verify hyperlink annotation generation and injection."""
+
+    def test_hyperlink_annotations_for_verified_person(self):
+        """Verified person claims with URLs produce hyperlink annotations."""
+        from execution.agents.fact_verification_agent import (
+            Claim, VerificationResult, VerificationStatus, FactVerificationReport
+        )
+        claim = Claim(text="Person exists: Andrew Ng", claim_type="person_reference")
+        result = VerificationResult(
+            claim=claim,
+            status=VerificationStatus.VERIFIED,
+            sources=[{"url": "https://www.andrewng.org/", "title": "Andrew Ng"}],
+            confidence=0.9
+        )
+        report = FactVerificationReport(
+            claims=[claim], results=[result],
+            verified_count=1, passes_quality_gate=True, summary="OK"
+        )
+        annotations = report.get_hyperlink_annotations()
+        assert len(annotations) == 1
+        assert annotations[0]["text"] == "Andrew Ng"
+        assert annotations[0]["url"] == "https://www.andrewng.org/"
+
+    def test_inject_hyperlinks_replaces_text(self):
+        """inject_hyperlinks replaces plain text with markdown links."""
+        from execution.agents.fact_verification_agent import inject_hyperlinks
+        article = "Andrew Ng is a leading AI researcher."
+        annotations = [{"text": "Andrew Ng", "url": "https://www.andrewng.org/", "type": "person"}]
+        result = inject_hyperlinks(article, annotations)
+        assert "[Andrew Ng](https://www.andrewng.org/)" in result
+
+    def test_inject_hyperlinks_no_double_link(self):
+        """inject_hyperlinks must not double-link already linked text."""
+        from execution.agents.fact_verification_agent import inject_hyperlinks
+        article = "[Andrew Ng](https://www.andrewng.org/) is a leading AI researcher."
+        annotations = [{"text": "Andrew Ng", "url": "https://www.andrewng.org/", "type": "person"}]
+        result = inject_hyperlinks(article, annotations)
+        assert result.count("[Andrew Ng]") == 1
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

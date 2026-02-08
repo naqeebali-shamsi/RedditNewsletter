@@ -18,6 +18,7 @@ WSJ Four Showstoppers addressed:
 
 import os
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
@@ -76,6 +77,7 @@ class FactVerificationReport:
             "results": [
                 {
                     "claim": r.claim.text,
+                    "claim_type": r.claim.claim_type,
                     "status": r.status.value,
                     "sources": r.sources,
                     "explanation": r.explanation,
@@ -89,6 +91,65 @@ class FactVerificationReport:
             "passes_quality_gate": self.passes_quality_gate,
             "summary": self.summary
         }
+
+
+    def get_hyperlink_annotations(self) -> List[Dict]:
+        """
+        Generate hyperlink annotations for verified attributions.
+
+        Returns a list of {text, url, type} for all verified person references,
+        quotes, and research attributions that have source URLs.
+        The pipeline can use this to inject markdown hyperlinks into the article.
+        """
+        annotations = []
+        for result in self.results:
+            if result.status not in (VerificationStatus.VERIFIED,
+                                     VerificationStatus.PARTIALLY_VERIFIED):
+                continue
+            if not result.sources:
+                continue
+
+            url = None
+            for src in result.sources:
+                if isinstance(src, dict) and src.get("url"):
+                    url = src["url"]
+                    break
+
+            if not url:
+                continue
+
+            if result.claim.claim_type == "person_reference":
+                name = result.claim.text.replace("Person exists: ", "")
+                annotations.append({"text": name, "url": url, "type": "person"})
+            elif result.claim.claim_type == "research_attribution":
+                institution = result.claim.text.replace("Research attribution: ", "")
+                annotations.append({"text": institution, "url": url, "type": "research"})
+            elif result.claim.claim_type == "direct_quote":
+                annotations.append({
+                    "text": result.claim.context[:60],
+                    "url": url,
+                    "type": "quote"
+                })
+
+        return annotations
+
+    def get_fabrication_flags(self) -> List[Dict]:
+        """
+        Return all claims flagged as fabricated for revision instructions.
+        """
+        flags = []
+        for result in self.results:
+            if result.status == VerificationStatus.FALSE:
+                flags.append({
+                    "claim": result.claim.text,
+                    "type": result.claim.claim_type,
+                    "explanation": result.explanation,
+                    "correction": result.correction,
+                    "action": "REMOVE" if result.claim.claim_type in (
+                        "person_reference", "direct_quote"
+                    ) else "CORRECT"
+                })
+        return flags
 
 
 class FactVerificationAgent:
@@ -172,6 +233,93 @@ RULES:
 - "unverified": No sources found to confirm
 - "false": Sources contradict the claim
 - "not_checkable": Claim is subjective/opinion"""
+
+    # --- Fabrication Detection: Regex patterns for high-risk hallucination targets ---
+    # LLMs commonly fabricate: expert names with titles, direct quotes, institution research
+    PERSON_PATTERNS = [
+        # "Dr./Prof. FirstName LastName"
+        re.compile(r'(?:Dr\.|Prof\.|Professor)\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+)'),
+        # "FirstName LastName, a leading/renowned/noted ..."
+        re.compile(
+            r'([A-Z][a-z]+\s+[A-Z][a-z]+),\s+(?:a|an)\s+'
+            r'(?:leading|renowned|noted|prominent|senior|chief|veteran|top|well-known|distinguished)\s+'
+        ),
+        # "According to FirstName LastName"
+        re.compile(r'According to\s+([A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+)'),
+    ]
+
+    # Direct quotes: 30+ chars inside quotation marks (catches fabricated expert quotes)
+    QUOTE_PATTERN = re.compile(r'["\u201c]([^"\u201d]{30,})["\u201d]')
+
+    # Research attributions: "Research from Stanford and MIT shows..."
+    RESEARCH_ATTRIBUTION_PATTERN = re.compile(
+        r'(?:Research|Studies|Data|A\s+study|Survey|Report|Analysis)\s+'
+        r'(?:from|by|at|conducted\s+at|published\s+by)\s+'
+        r'([A-Z][a-zA-Z\s,&]+?)'
+        r'(?:\s+(?:shows?|demonstrates?|reveals?|indicates?|found|suggests?|proves?))',
+        re.IGNORECASE
+    )
+
+    # Specialized prompt for verifying person existence
+    PERSON_VERIFY_PROMPT = """You are verifying whether a specific person exists with the claimed credentials.
+
+PERSON NAME: {name}
+ARTICLE CONTEXT: {context}
+TOPIC: {topic}
+
+TASK: Search for this EXACT person. Determine if they are REAL with matching credentials.
+
+A person is VERIFIED only if:
+- You find their official profile (university page, LinkedIn, Google Scholar, company page)
+- Their field of expertise matches what the article claims
+- They have published work or public presence in the relevant field
+
+A person is FABRICATED (false) if:
+- No person with that name works in this field
+- The name exists but in a completely different field
+- No public profile, publication, or mention can be found
+
+Return JSON:
+{{
+    "status": "verified|false|unverified",
+    "profile_url": "URL to their real profile, or null",
+    "real_credentials": "Their actual title and affiliation if found",
+    "explanation": "Why you believe this person is real or fabricated",
+    "confidence": 0.0-1.0
+}}
+
+IMPORTANT: LLMs commonly fabricate expert names like "Dr. Sarah Chen" or "Prof. James Miller".
+If you cannot find a SPECIFIC profile for this person in this field, mark as "false"."""
+
+    # Specialized prompt for verifying direct quotes
+    QUOTE_VERIFY_PROMPT = """You are verifying whether a specific quote was ever published or said.
+
+QUOTE: "{quote_text}"
+ATTRIBUTED TO: {attributed_to}
+ARTICLE CONTEXT: {context}
+
+TASK: Search for this EXACT quote text. Determine if it was ever published anywhere.
+
+A quote is VERIFIED only if:
+- You find the exact or near-exact text in a published source (article, interview, paper, talk)
+- The attribution to the named person is confirmed by the source
+
+A quote is FABRICATED (false) if:
+- The exact quote text cannot be found published anywhere
+- The person it's attributed to never said or wrote this
+- The quote exists but was said by a different person
+
+Return JSON:
+{{
+    "status": "verified|false|unverified",
+    "source_url": "URL where the quote was found, or null",
+    "actual_source": "Who actually said it if different, or null",
+    "explanation": "Why you believe this quote is real or fabricated",
+    "confidence": 0.0-1.0
+}}
+
+IMPORTANT: LLMs commonly fabricate plausible-sounding quotes attributed to real or fake experts.
+If this exact quote cannot be found published ANYWHERE online, it is almost certainly fabricated."""
 
     def __init__(self):
         """Initialize the fact verification agent with available providers."""
@@ -310,13 +458,56 @@ RULES:
                         "Possible extraction failure."
             )
 
-        # Step 2: Verify each claim
+        # Step 2: Verify each general claim
         results = []
         for claim in claims:
             result = self._verify_claim(claim, topic)
             results.append(result)
 
-        # Step 3: Calculate counts
+        # Step 2b: Fabrication risk scan — regex-based detection of persons,
+        # quotes, and research attributions that LLMs commonly hallucinate
+        print("\n--- Fabrication Risk Scan ---")
+        fabrication_claims = self._scan_for_fabrication_risks(content)
+        fabrication_results = []
+
+        for fab_claim in fabrication_claims:
+            if self._is_claim_already_covered(fab_claim, claims):
+                print(f"  [Skip] Already covered: {fab_claim.text[:50]}")
+                continue
+            print(f"  [Verifying] {fab_claim.text[:60]}...")
+            fab_result = self._verify_high_risk_claim(fab_claim, topic)
+            fabrication_results.append(fab_result)
+            claims.append(fab_claim)
+            results.append(fab_result)
+            status_label = fab_result.status.value.upper()
+            print(f"    -> {status_label} (confidence: {fab_result.confidence:.1%})")
+
+        # Step 2c: For person/quote claims, unverified = false (fail-closed)
+        # If we can't confirm a named expert or quote exists, treat as fabricated
+        for result in results:
+            if (result.claim.claim_type in ("person_reference", "direct_quote")
+                    and result.status == VerificationStatus.UNVERIFIED):
+                print(f"  [Fail-Closed] Unverifiable {result.claim.claim_type} "
+                      f"treated as FALSE: {result.claim.text[:50]}")
+                result.status = VerificationStatus.FALSE
+                result.explanation += (
+                    " [FAIL-CLOSED: Unverifiable person/quote treated as fabricated. "
+                    "All named experts and direct quotes MUST be traceable to a real source.]"
+                )
+
+        if fabrication_claims:
+            fab_false = sum(1 for r in fabrication_results
+                           if r.status == VerificationStatus.FALSE)
+            fab_verified = sum(1 for r in fabrication_results
+                              if r.status in (VerificationStatus.VERIFIED,
+                                              VerificationStatus.PARTIALLY_VERIFIED))
+            print(f"\n  Fabrication scan: {len(fabrication_claims)} high-risk items found, "
+                  f"{fab_verified} verified, {fab_false} flagged as fabricated")
+        else:
+            print("  No high-risk fabrication patterns detected.")
+        print("--- End Fabrication Scan ---\n")
+
+        # Step 3: Calculate counts (includes fabrication scan results)
         verified = sum(1 for r in results if r.status == VerificationStatus.VERIFIED)
         partial = sum(1 for r in results if r.status == VerificationStatus.PARTIALLY_VERIFIED)
         unverified = sum(1 for r in results if r.status == VerificationStatus.UNVERIFIED)
@@ -533,6 +724,209 @@ RULES:
             print(f"  Back-reference validation: {len(claims)} -> {len(validated)} claims")
 
         return validated
+
+    # ---------------------------------------------------------------
+    # Fabrication Detection: Regex-based scan + targeted verification
+    # ---------------------------------------------------------------
+
+    def _scan_for_fabrication_risks(self, content: str) -> List[Claim]:
+        """
+        Regex-based scan for high-risk hallucination patterns.
+
+        LLMs commonly fabricate:
+        1. Expert names with impressive titles ("Dr. Emma Taylor, a leading AI researcher")
+        2. Direct quotes attributed to fake experts
+        3. "Research from {University}" without citing a real paper
+        4. Specific company case studies with round numbers
+
+        Returns claims that MUST be verified with stricter criteria.
+        """
+        high_risk_claims = []
+        seen_names = set()
+        seen_quotes = set()
+
+        # 1. Detect person references
+        for pattern in self.PERSON_PATTERNS:
+            for match in pattern.finditer(content):
+                name = match.group(1).strip().rstrip(',')
+                if name in seen_names or len(name.split()) < 2:
+                    continue
+                seen_names.add(name)
+
+                # Get sentence context
+                start = max(0, content.rfind('.', 0, match.start()) + 1)
+                end = content.find('.', match.end())
+                if end == -1:
+                    end = min(len(content), match.end() + 200)
+                context = content[start:end + 1].strip()
+
+                high_risk_claims.append(Claim(
+                    text=f"Person exists: {name}",
+                    claim_type="person_reference",
+                    context=context
+                ))
+                print(f"  [Fabrication Scan] Detected person reference: {name}")
+
+        # 2. Detect direct quotes (30+ chars in quotation marks)
+        for match in self.QUOTE_PATTERN.finditer(content):
+            quote_text = match.group(1).strip()
+            # Normalize for dedup
+            quote_sig = quote_text[:50].lower()
+            if quote_sig in seen_quotes:
+                continue
+            seen_quotes.add(quote_sig)
+
+            # Find attribution context (look before and after the quote)
+            before_start = max(0, match.start() - 200)
+            after_end = min(len(content), match.end() + 100)
+            context = content[before_start:after_end].strip()
+
+            # Try to extract who the quote is attributed to
+            # Look in the immediate vicinity before the quote (same sentence)
+            attributed_to = "unknown"
+            before_quote = content[max(0, match.start() - 150):match.start()]
+            for p_pattern in self.PERSON_PATTERNS:
+                # Search the text right before the quote for the closest name
+                attr_matches = list(p_pattern.finditer(before_quote))
+                if attr_matches:
+                    attributed_to = attr_matches[-1].group(1).strip().rstrip(',')
+                    break
+
+            high_risk_claims.append(Claim(
+                text=f'Quote attributed to {attributed_to}: "{quote_text[:100]}"',
+                claim_type="direct_quote",
+                context=context
+            ))
+            print(f"  [Fabrication Scan] Detected direct quote attributed to: {attributed_to}")
+
+        # 3. Detect research/study attributions
+        for match in self.RESEARCH_ATTRIBUTION_PATTERN.finditer(content):
+            institution = match.group(1).strip().rstrip(',')
+            if len(institution) < 3:
+                continue
+
+            start = max(0, content.rfind('.', 0, match.start()) + 1)
+            end = content.find('.', match.end())
+            if end == -1:
+                end = min(len(content), match.end() + 200)
+            context = content[start:end + 1].strip()
+
+            high_risk_claims.append(Claim(
+                text=f"Research attribution: {institution}",
+                claim_type="research_attribution",
+                context=context
+            ))
+            print(f"  [Fabrication Scan] Detected research attribution: {institution}")
+
+        return high_risk_claims
+
+    def _is_claim_already_covered(self, new_claim: Claim, existing_claims: List[Claim]) -> bool:
+        """Check if a fabrication-scan claim overlaps with an already-extracted claim."""
+        new_words = set(new_claim.text.lower().split()) | set(new_claim.context.lower().split()[:20])
+        for existing in existing_claims:
+            existing_words = set(existing.text.lower().split())
+            overlap = len(new_words & existing_words)
+            if overlap >= 3:  # Significant overlap
+                return True
+        return False
+
+    def _verify_high_risk_claim(self, claim: Claim, topic: str) -> VerificationResult:
+        """
+        Verify high-risk claims (persons, quotes, research) with TARGETED prompts.
+
+        Unlike generic verification, these use specific search queries designed
+        to detect LLM fabrication:
+        - Person claims: "Does {name} exist as {role}?"
+        - Quote claims: "Was this exact text ever published?"
+        - Research claims: "Does this specific study exist?"
+        """
+        if claim.claim_type == "person_reference":
+            name = claim.text.replace("Person exists: ", "")
+            prompt = self.PERSON_VERIFY_PROMPT.format(
+                name=name, context=claim.context, topic=topic
+            )
+        elif claim.claim_type == "direct_quote":
+            # Extract quote text and attribution
+            quote_match = re.search(r'"([^"]+)"', claim.text)
+            quote_text = quote_match.group(1) if quote_match else claim.text
+            attr_match = re.search(r'attributed to (\w[\w\s.]+?):', claim.text)
+            attributed_to = attr_match.group(1) if attr_match else "unknown"
+            prompt = self.QUOTE_VERIFY_PROMPT.format(
+                quote_text=quote_text[:200],
+                attributed_to=attributed_to,
+                context=claim.context
+            )
+        elif claim.claim_type == "research_attribution":
+            institution = claim.text.replace("Research attribution: ", "")
+            prompt = f"""Verify this research attribution:
+
+CLAIM: {claim.context}
+INSTITUTION: {institution}
+TOPIC: {topic}
+
+Search for the SPECIFIC study or paper being referenced. Find:
+- Paper title, authors, publication venue
+- DOI or URL to the actual paper
+
+Return JSON:
+{{"status": "verified|false|unverified", "paper_url": "URL or null", "paper_title": "title or null", "explanation": "...", "confidence": 0.0-1.0}}
+
+If the article vaguely says "Research from X shows..." without a specific paper, and you cannot find a matching study, mark as "unverified"."""
+        else:
+            return self._verify_claim(claim, topic)
+
+        # Try each web-search-capable provider
+        for provider_name, provider in self.providers:
+            if provider_name == "groq":
+                continue  # Groq has no web search — skip for fabrication detection
+
+            try:
+                if provider_name == "gemini":
+                    from google.genai import types
+                    response = provider.client.models.generate_content(
+                        model=provider.model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            tools=[provider.grounding_tool],
+                            temperature=0.1
+                        )
+                    )
+                    return self._parse_verification_result(claim, response.text, response)
+
+                elif provider_name == "perplexity":
+                    response = provider.client.chat.completions.create(
+                        model=provider.model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You are a fact-checker detecting AI-fabricated content. "
+                                    "Search the web to verify whether specific people, quotes, "
+                                    "and research citations are real. Be ruthless — LLMs commonly "
+                                    "fabricate expert names and quotes."
+                                )
+                            },
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.1
+                    )
+                    return self._parse_verification_result(
+                        claim, response.choices[0].message.content
+                    )
+
+            except Exception as e:
+                print(f"  [Fabrication Check] {provider_name} failed for {claim.claim_type}: {e}")
+                continue
+
+        # All providers failed — fail-closed for high-risk claims
+        print(f"  [Fabrication Check] ALL PROVIDERS FAILED for: {claim.text[:60]}")
+        return VerificationResult(
+            claim=claim,
+            status=VerificationStatus.FALSE,
+            sources=[],
+            explanation="All verification providers failed. Treating as fabricated (fail-closed).",
+            confidence=0.0
+        )
 
     def _parse_claims(self, response: str) -> List[Claim]:
         """Parse LLM response into Claim objects."""
@@ -777,13 +1171,13 @@ Please verify this specific claim using web search. Return JSON with status, sou
             f"  ✅ Verified: {verified}",
             f"  🔶 Partially verified: {partial}",
             f"  ⚠️  Unverified: {unverified}",
-            f"  ❌ False: {false_claims}",
+            f"  ❌ False/Fabricated: {false_claims}",
             "",
         ]
 
         if not passes:
             if false_claims > 0:
-                lines.append(f"⚠️  BLOCKING: {false_claims} false claim(s) found")
+                lines.append(f"⚠️  BLOCKING: {false_claims} false/fabricated claim(s) found")
             if unverified > self.max_unverified:
                 lines.append(f"⚠️  BLOCKING: {unverified} unverified claims (max: {self.max_unverified})")
             if (verified + partial) < self.min_verified:
@@ -802,7 +1196,38 @@ def verify_article_facts(content: str, topic: str = "") -> Tuple[bool, Dict]:
     """
     agent = FactVerificationAgent()
     report = agent.verify_article(content, topic)
-    return report.passes_quality_gate, report.to_dict()
+
+    result = report.to_dict()
+    # Attach fabrication flags and hyperlink annotations
+    result["fabrication_flags"] = report.get_fabrication_flags()
+    result["hyperlink_annotations"] = report.get_hyperlink_annotations()
+
+    return report.passes_quality_gate, result
+
+
+def inject_hyperlinks(article: str, annotations: List[Dict]) -> str:
+    """
+    Post-process an article to inject markdown hyperlinks for verified attributions.
+
+    Args:
+        article: The article markdown text
+        annotations: List of {text, url, type} from FactVerificationReport.get_hyperlink_annotations()
+
+    Returns:
+        Article with hyperlinks injected (e.g., "Dr. Smith" -> "[Dr. Smith](url)")
+    """
+    if not annotations:
+        return article
+
+    for annotation in annotations:
+        text = annotation["text"]
+        url = annotation["url"]
+        # Only replace first occurrence to avoid double-linking
+        linked = f"[{text}]({url})"
+        if text in article and linked not in article:
+            article = article.replace(text, linked, 1)
+
+    return article
 
 
 if __name__ == "__main__":

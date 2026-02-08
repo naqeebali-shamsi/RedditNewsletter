@@ -11,20 +11,21 @@ import datetime
 import json
 from pathlib import Path
 
-# Add project root to path (n:/RedditNews)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# Add project root to path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
+
+# Centralized configuration
+from execution.config import config, OUTPUT_DIR
 
 from execution.agents.editor import EditorAgent
 from execution.agents.critic import CriticAgent
 from execution.agents.writer import WriterAgent
+from execution.agents.base_agent import LLMError
 from execution.agents.visuals import VisualsAgent
 from execution.agents.gemini_researcher import GeminiResearchAgent
+from execution.agents.perplexity_researcher import PerplexityResearchAgent
 from execution.prompts.voice_templates import get_voice_prompt, EXTERNAL_VOICE_PROMPT, INTERNAL_VOICE_PROMPT
-
-# Ensure output directory
-OUTPUT_DIR = Path("n:/RedditNews/drafts")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def main():
     parser = argparse.ArgumentParser(description="Generate a high-quality Medium article.")
@@ -50,25 +51,40 @@ def main():
     writer = WriterAgent()       # Groq - fast inference
     visuals = VisualsAgent()     # Vertex AI - image generation
 
-    # Gemini Researcher - uses Google Search Grounding for REAL fact verification
-    try:
-        gemini_researcher = GeminiResearchAgent(model="gemini-2.5-flash")
-        print("   ✓ Agents Ready: Editor, Critic, Writer, Visuals, GeminiResearcher")
-    except Exception as e:
-        print(f"   ⚠️  GeminiResearcher unavailable: {e}")
-        gemini_researcher = None
-        print("   ✓ Agents Ready: Editor, Critic, Writer, Visuals (no research)")
+    # Grounded Research Agents - for REAL fact verification with web search
+    # Priority: Gemini 3 Flash (Google Search) -> Perplexity Sonar (built-in citations) -> Pattern fallback
+    research_agent = None
+    research_agent_name = None
 
-    # 1.5 FACT RESEARCH PHASE (Gemini + Google Search Grounding)
+    # Try Gemini 3 Flash first (best Google Search integration)
+    try:
+        research_agent = GeminiResearchAgent(model="gemini-3-flash-preview")
+        research_agent_name = "Gemini 3 Flash"
+        print("   ✓ Research Agent: Gemini 3 Flash (Google Search Grounding)")
+    except Exception as e:
+        print(f"   ⚠️  Gemini unavailable: {e}")
+
+        # Fallback to Perplexity Sonar Pro (excellent factuality, built-in citations)
+        try:
+            research_agent = PerplexityResearchAgent(model="sonar-pro")
+            research_agent_name = "Perplexity Sonar Pro"
+            print("   ✓ Research Agent: Perplexity Sonar Pro (Grounded Search)")
+        except Exception as e2:
+            print(f"   ⚠️  Perplexity unavailable: {e2}")
+            print("   ⚠️  No grounded research available - will use pattern-based validation")
+
+    print(f"   ✓ Agents Ready: Editor, Critic, Writer, Visuals" + (f", {research_agent_name}" if research_agent else ""))
+
+    # 1.5 FACT RESEARCH PHASE (Grounded Web Search)
     fact_sheet = {}
     fact_constraints = ""
 
-    if gemini_researcher:
-        print(f"\n🔍 [Gemini Researcher] Searching Google for facts on: '{args.topic}'...")
+    if research_agent:
+        print(f"\n🔍 [{research_agent_name}] Searching web for facts on: '{args.topic}'...")
 
         try:
-            # Use Gemini's Google Search Grounding for REAL research
-            fact_sheet = gemini_researcher.research_topic(
+            # Use grounded search for REAL fact verification
+            fact_sheet = research_agent.research_topic(
                 topic=args.topic,
                 source_content=args.source_content
             )
@@ -80,14 +96,18 @@ def main():
             unverified_count = len(fact_sheet.get("unverified_claims", []))
             unknown_count = len(fact_sheet.get("unknowns", []))
 
-            print(f"   ✓ Research Complete (via Google Search):")
+            print(f"   ✓ Research Complete (via {research_agent_name}):")
             print(f"      Verified Facts: {verified_count}")
             print(f"      Unverified (DO NOT USE): {unverified_count}")
             print(f"      Unknowns: {unknown_count}")
 
-            # Show search queries used
-            if fact_sheet.get("grounding_metadata", {}).get("search_queries"):
-                print(f"      Searches: {fact_sheet['grounding_metadata']['search_queries'][:3]}")
+            # Show search queries used (if available in metadata)
+            grounding_meta = fact_sheet.get("grounding_metadata", {})
+            perplexity_citations = fact_sheet.get("perplexity_citations", [])
+            if grounding_meta.get("search_queries"):
+                print(f"      Searches: {grounding_meta['search_queries'][:3]}")
+            elif perplexity_citations:
+                print(f"      Citations: {len(perplexity_citations)} sources")
 
             if verified_count == 0:
                 print(f"   ⚠️  NO VERIFIED FACTS - Writer will avoid specific claims")
@@ -96,7 +116,7 @@ def main():
             print(f"   ⚠️  Research failed: {e}")
             print(f"   ⚠️  Writer will proceed without fact sheet")
     else:
-        print(f"\n⚠️  Skipping research phase (Gemini not configured)")
+        print(f"\n⚠️  Skipping research phase (no research agent configured)")
 
     # 2. Strategy Phase
     print(f"\n🧠 [Editor] Planning article on: '{args.topic}'...")
@@ -108,7 +128,11 @@ def main():
     print(f"   ✓ Critique Received: {critique[:50]}...")
 
     print(f"\n🧠 [Editor] Refining outline based on critique...")
-    refined_outline = editor.call_llm(f"Refine this outline based on the critique:\nTarget: {outline}\nCritique: {critique}")
+    try:
+        refined_outline = editor.call_llm(f"Refine this outline based on the critique:\nTarget: {outline}\nCritique: {critique}")
+    except LLMError as e:
+        print(f"   ⚠️  Editor LLM failed: {e}. Using original outline.")
+        refined_outline = outline
     print(f"   ✓ Outline Refined")
 
     # 3. Drafting Phase (Simplified for this script: Full Draft)
@@ -152,15 +176,15 @@ If you need a fact not in the sheet, write with conviction but WITHOUT fabricati
     draft = writer.write_section(refined_outline, critique=f"Prepare the full draft.\n{writer_context}")
     print(f"   ✓ First Draft Complete ({len(draft)} chars)")
 
-    # 3.5. VERIFICATION PHASE - Use Gemini to verify draft against real sources
+    # 3.5. VERIFICATION PHASE - Use grounded research to verify draft against real sources
     print(f"\n🔬 [Verification] Checking draft accuracy...")
 
     MAX_REVISIONS = 2
     for attempt in range(MAX_REVISIONS + 1):
-        # Use Gemini to verify the draft against Google Search
-        if gemini_researcher:
-            print(f"   🔍 [Gemini] Verifying claims via Google Search...")
-            verification = gemini_researcher.verify_draft(draft, topic=args.topic)
+        # Use grounded research agent to verify draft against web sources
+        if research_agent:
+            print(f"   🔍 [{research_agent_name}] Verifying claims via web search...")
+            verification = research_agent.verify_draft(draft, topic=args.topic)
 
             accuracy_score = verification.get("overall_accuracy_score", 0)
             recommendation = verification.get("recommendation", "REJECT")
@@ -200,8 +224,11 @@ CRITICAL RULES:
 
 Keep the same structure. Make it TECHNICALLY HONEST."""
 
-                draft = writer.call_llm(revision_prompt)
-                print(f"   ✓ Revision complete ({len(draft)} chars)")
+                try:
+                    draft = writer.call_llm(revision_prompt)
+                    print(f"   ✓ Revision complete ({len(draft)} chars)")
+                except LLMError as e:
+                    print(f"   ⚠️  Writer LLM failed during revision: {e}. Keeping current draft.")
             else:
                 print(f"   ⚠️  Max revisions reached. Proceeding with current draft.")
 
@@ -232,8 +259,11 @@ ISSUES:
 
 Remove fabricated stats. Fix or remove suspicious claims. Be honest."""
 
-                draft = writer.call_llm(revision_prompt)
-                print(f"   ✓ Revision complete ({len(draft)} chars)")
+                try:
+                    draft = writer.call_llm(revision_prompt)
+                    print(f"   ✓ Revision complete ({len(draft)} chars)")
+                except LLMError as e:
+                    print(f"   ⚠️  Writer LLM failed during revision: {e}. Keeping current draft.")
             else:
                 print(f"   ⚠️  Max revisions reached.")
 
@@ -382,9 +412,11 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
     
     if "REVISE" in review:
         print(f"   ⚠️  Revision Needed: {review}")
-        # Call the model via one of the agents to merge feedback
-        draft = writer.call_llm(f"Apply these final editor corrections while keeping the specialists' work intact:\n{review}\n\nDraft:\n{draft}")
-        print(f"   ✓ Final Revision Complete")
+        try:
+            draft = writer.call_llm(f"Apply these final editor corrections while keeping the specialists' work intact:\n{review}\n\nDraft:\n{draft}")
+            print(f"   ✓ Final Revision Complete")
+        except LLMError as e:
+            print(f"   ⚠️  Final revision LLM failed: {e}. Keeping current draft.")
     else:
         print(f"   ✓ Draft Approved")
 

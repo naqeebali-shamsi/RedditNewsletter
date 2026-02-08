@@ -6,6 +6,13 @@ Handles LLM interaction and common utilities.
 import os
 import time
 
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
+
 try:
     from google import genai
 except ImportError:
@@ -16,14 +23,86 @@ try:
 except ImportError:
     OpenAI = None
 
+
+# ---------------------------------------------------------------------------
+# Exception hierarchy
+# ---------------------------------------------------------------------------
+
+class LLMError(Exception):
+    """Base exception for LLM call failures."""
+    pass
+
+
+class ProviderError(LLMError):
+    """A specific provider failed."""
+    def __init__(self, provider: str, message: str, original_error: Exception = None):
+        self.provider = provider
+        self.original_error = original_error
+        super().__init__(f"{provider}: {message}")
+
+
+class AllProvidersFailedError(LLMError):
+    """All providers in the cascade failed."""
+    def __init__(self, errors: list):
+        self.errors = errors
+        messages = "; ".join(str(e) for e in errors)
+        super().__init__(f"All providers failed: {messages}")
+
+
+class LLMNotConfiguredError(LLMError):
+    """Raised when no LLM provider is configured."""
+    pass
+
+
+# Transient error types worth retrying (rate limits, timeouts, server errors)
+_TRANSIENT_SUBSTRINGS = [
+    "rate limit",
+    "rate_limit",
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "timeout",
+    "timed out",
+    "connection",
+    "temporarily unavailable",
+]
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Return True if the exception looks transient and worth retrying."""
+    msg = str(exc).lower()
+    return any(s in msg for s in _TRANSIENT_SUBSTRINGS)
+
+
 class BaseAgent:
-    def __init__(self, role, persona, model="gemini-2.0-flash-exp"):
+    def __init__(self, role, persona, model="gemini-2.0-flash-exp", provider=None):
         self.role = role
         self.persona = persona
         self.model_name = model
         self.provider = "unknown"
-        self._get_api_key()
+
+        if provider:
+            # Per-agent provider override — skip auto-detection
+            self.provider = provider
+            self.api_key = self._get_key_for_provider(provider)
+        else:
+            self._get_api_key()
+
         self._setup_client()
+
+    @staticmethod
+    def _get_key_for_provider(provider: str):
+        """Return the API key for an explicitly-requested provider."""
+        mapping = {
+            "groq": "GROQ_API_KEY",
+            "gemini": "GOOGLE_API_KEY",
+            "google": "GOOGLE_API_KEY",
+            "openai": "OPENAI_API_KEY",
+        }
+        env_var = mapping.get(provider)
+        return os.getenv(env_var) if env_var else None
 
     def _get_api_key(self):
         # Priority: Groq -> Vertex (Project) -> Gemini (Key) -> OpenAI
@@ -53,7 +132,7 @@ class BaseAgent:
                 api_key=self.api_key
             )
             self.client_type = "groq"
-        elif self.provider == "gemini" and genai:
+        elif self.provider in ("gemini", "google") and genai:
             if getattr(self, 'vertexai', False) and not self.api_key:
                 # Use ADC for Vertex if no key provided
                 self.client = genai.Client(
@@ -74,18 +153,67 @@ class BaseAgent:
         else:
             self.client_type = "unknown"
 
+    # ------------------------------------------------------------------
+    # Provider call with retry (Upgrade 2)
+    # ------------------------------------------------------------------
+
+    def _call_provider_with_retry(self, provider_name, call_fn):
+        """
+        Execute *call_fn* with up to 2 retry attempts on transient errors.
+
+        Raises ProviderError on permanent failure.
+        """
+        last_exc = None
+        for attempt in range(3):  # initial + 2 retries
+            try:
+                return call_fn()
+            except Exception as e:
+                last_exc = e
+                if attempt < 2 and _is_transient(e):
+                    wait = (attempt + 1) * 2  # 2s, 4s
+                    time.sleep(wait)
+                    continue
+                break
+        raise ProviderError(
+            provider_name,
+            str(last_exc),
+            original_error=last_exc,
+        )
+
+    # ------------------------------------------------------------------
+    # Response validation (Upgrade 3)
+    # ------------------------------------------------------------------
+
+    def _validate_response(self, response: str, provider_name: str) -> str:
+        """Validate that the LLM response is real content, not empty/error."""
+        if not response or not response.strip():
+            raise ProviderError(provider_name, "Empty response from model")
+        stripped = response.strip()
+        if len(stripped) < 20:
+            raise ProviderError(provider_name, f"Response too short ({len(stripped)} chars)")
+        return stripped
+
+    # ------------------------------------------------------------------
+    # Main entry point
+    # ------------------------------------------------------------------
+
     def call_llm(self, prompt, system_instruction=None, temperature=0.7):
-        """Standardized call to the underlying LLM."""
+        """Standardized call to the underlying LLM.
+
+        Raises:
+            LLMNotConfiguredError: No provider configured.
+            ProviderError: The configured provider failed after retries.
+        """
         if self.client_type == "unknown":
-            return "Error: LLM client not configured."
+            raise LLMNotConfiguredError("No LLM provider is configured.")
 
         full_system_prompt = f"You are the {self.role}.\nPersona: {self.persona}\n"
         if system_instruction:
             full_system_prompt += f"\nSpecific Instructions:\n{system_instruction}"
 
         if self.client_type == "groq":
-            try:
-                response = self.client.chat.completions.create(
+            def _groq_call():
+                resp = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=[
                         {"role": "system", "content": full_system_prompt},
@@ -93,14 +221,15 @@ class BaseAgent:
                     ],
                     temperature=temperature
                 )
-                return response.choices[0].message.content
-            except Exception as e:
-                return f"Groq Error: {str(e)}"
+                return resp.choices[0].message.content
+
+            result = self._call_provider_with_retry("Groq", _groq_call)
+            return self._validate_response(result, "Groq")
 
         elif self.client_type == "gemini":
-            try:
+            def _gemini_call():
                 from google.genai import types
-                response = self.client.models.generate_content(
+                resp = self.client.models.generate_content(
                     model=self.model_name,
                     contents=prompt,
                     config=types.GenerateContentConfig(
@@ -108,13 +237,14 @@ class BaseAgent:
                         temperature=temperature
                     )
                 )
-                return response.text
-            except Exception as e:
-                return f"Gemini Error: {str(e)}"
+                return resp.text
+
+            result = self._call_provider_with_retry("Gemini", _gemini_call)
+            return self._validate_response(result, "Gemini")
 
         elif self.client_type == "openai":
-            try:
-                response = self.client.chat.completions.create(
+            def _openai_call():
+                resp = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=[
                         {"role": "system", "content": full_system_prompt},
@@ -122,8 +252,9 @@ class BaseAgent:
                     ],
                     temperature=temperature
                 )
-                return response.choices[0].message.content
-            except Exception as e:
-                return f"OpenAI Error: {str(e)}"
+                return resp.choices[0].message.content
 
-        return "Error: Unsupported client type."
+            result = self._call_provider_with_retry("OpenAI", _openai_call)
+            return self._validate_response(result, "OpenAI")
+
+        raise ProviderError(self.provider, "Unsupported client type")

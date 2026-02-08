@@ -12,7 +12,7 @@ import time
 import sqlite3
 from pathlib import Path
 from typing import List, Dict, Optional
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, LLMError
 
 
 # Database path
@@ -142,7 +142,11 @@ Output VALID JSON:
 
 Focus on TECHNICAL themes, not announcements. What would a Staff Engineer find interesting?"""
 
-        response = self.call_llm(prompt, temperature=0.3)
+        try:
+            response = self.call_llm(prompt, temperature=0.3)
+        except LLMError as e:
+            print(f"  [!] LLM call failed during commit analysis: {e}")
+            return []
 
         try:
             # Parse JSON response

@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from execution.agents.adversarial_panel import AdversarialPanelAgent, PanelVerdict
 from execution.agents.writer import WriterAgent
 from execution.agents.editor import EditorAgent
+from execution.agents.base_agent import LLMError
 from execution.agents.fact_verification_agent import FactVerificationAgent, verify_article_facts
 from execution.article_state import ArticleState, VerificationState, update_verification_state
 from execution.config import config
@@ -94,11 +95,11 @@ class QualityGate:
         """
         if not self.fact_verifier:
             return {
-                "passed": True,
+                "passed": False,
                 "verified_count": 0,
                 "unverified_count": 0,
                 "false_count": 0,
-                "summary": "Fact verification skipped (no provider available)",
+                "summary": "Fact verification unavailable (no provider). Content requires human review.",
                 "claims": [],
                 "results": []
             }
@@ -187,7 +188,7 @@ class QualityGate:
                     )
             except Exception as e:
                 self._log(f"   Warning: Fact verification failed: {e}")
-                verification_result = {"passed": True, "verified_count": 0, "unverified_count": 0, "false_count": 0, "summary": f"Verification skipped: {e}"}
+                verification_result = {"passed": False, "verified_count": 0, "unverified_count": 0, "false_count": 0, "summary": f"Verification failed ({e}). Content requires human review."}
 
         # Step 0.5: Style enforcement scoring (if available)
         style_result = None
@@ -347,7 +348,11 @@ IMPORTANT:
 - STRICTLY follow the voice requirements above
 """
 
-        revised = self.writer.call_llm(revision_prompt, temperature=0.7)
+        try:
+            revised = self.writer.call_llm(revision_prompt, temperature=0.7)
+        except LLMError as e:
+            self._log(f"  Revision LLM call failed: {e}")
+            return content  # Return original content if revision fails
 
         # Clean up any meta-commentary that slipped through
         if revised.startswith("Here") or revised.startswith("I've"):
@@ -378,7 +383,11 @@ CONTENT:
 
 Output ONLY the polished content. No explanations."""
 
-        polished = self.editor.call_llm(polish_prompt, temperature=0.3)
+        try:
+            polished = self.editor.call_llm(polish_prompt, temperature=0.3)
+        except LLMError as e:
+            self._log(f"  Final polish LLM call failed: {e}")
+            return content  # Return original if polish fails
 
         # Clean up
         if polished.startswith("Here") or polished.startswith("I've"):

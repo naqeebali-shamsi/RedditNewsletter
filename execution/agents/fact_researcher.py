@@ -13,7 +13,7 @@ Philosophy:
 
 import json
 from typing import Dict, Optional, Callable
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, LLMError
 
 
 class FactResearchAgent(BaseAgent):
@@ -110,7 +110,16 @@ Return JSON:
 Be SPECIFIC. If the topic mentions "MI50 GPU", we need to search for actual MI50 specs.
 If it mentions "10 trillion parameters", that's a red flag - verify or flag as suspicious."""
 
-        response = self.call_llm(prompt, temperature=0.2)
+        try:
+            response = self.call_llm(prompt, temperature=0.2)
+        except LLMError as e:
+            print(f"  [!] LLM call failed during research planning: {e}")
+            return {
+                "key_entities": [],
+                "search_queries": [{"query": topic, "purpose": "general research"}],
+                "red_flags": [],
+                "can_write_without_search": []
+            }
 
         try:
             # Parse JSON from response
@@ -119,7 +128,7 @@ If it mentions "10 trillion parameters", that's a red flag - verify or flag as s
             elif "```" in response:
                 response = response.split("```")[1].split("```")[0]
             return json.loads(response.strip())
-        except:
+        except (json.JSONDecodeError, KeyError, TypeError):
             return {
                 "key_entities": [],
                 "search_queries": [{"query": topic, "purpose": "general research"}],
@@ -210,7 +219,17 @@ RULES:
 4. Hardware specs MUST match official documentation
 5. When in doubt, mark as unverified"""
 
-        response = self.call_llm(prompt, temperature=0.1)
+        try:
+            response = self.call_llm(prompt, temperature=0.1)
+        except LLMError as e:
+            print(f"  [!] LLM call failed during fact synthesis: {e}")
+            return {
+                "verified_facts": [],
+                "unverified_claims": [],
+                "general_knowledge": [],
+                "unknowns": ["LLM call failed during synthesis"],
+                "warning": "Research synthesis failed - Writer should avoid ALL specific claims"
+            }
 
         try:
             if "```json" in response:
@@ -218,7 +237,7 @@ RULES:
             elif "```" in response:
                 response = response.split("```")[1].split("```")[0]
             return json.loads(response.strip())
-        except:
+        except (json.JSONDecodeError, KeyError, TypeError):
             return {
                 "verified_facts": [],
                 "unverified_claims": [],

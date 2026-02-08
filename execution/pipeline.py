@@ -21,9 +21,11 @@ Usage:
 
 import os
 import sys
+import threading
 from pathlib import Path
-from typing import Dict, Any, Optional, Literal, Annotated
+from typing import Dict, Any, Optional, List, Literal, Annotated
 from datetime import datetime
+from functools import wraps
 import operator
 
 # LangGraph imports
@@ -69,6 +71,45 @@ def merge_dicts(left: dict, right: dict) -> dict:
 
 
 # ============================================================================
+# Per-Node Timeout Support (cross-platform, threading-based)
+# ============================================================================
+
+class NodeTimeoutError(Exception):
+    """Raised when a pipeline node exceeds its timeout."""
+    def __init__(self, node_name: str, timeout_seconds: int):
+        self.node_name = node_name
+        self.timeout_seconds = timeout_seconds
+        super().__init__(f"Node '{node_name}' timed out after {timeout_seconds}s")
+
+
+def with_timeout(timeout_seconds: int):
+    """Decorator to add timeout to pipeline nodes (cross-platform, threading-based)."""
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            result = [None]
+            exception = [None]
+
+            def target():
+                try:
+                    result[0] = func(*args, **kwargs)
+                except Exception as e:
+                    exception[0] = e
+
+            thread = threading.Thread(target=target, daemon=True)
+            thread.start()
+            thread.join(timeout=timeout_seconds)
+
+            if thread.is_alive():
+                raise NodeTimeoutError(func.__name__, timeout_seconds)
+            if exception[0]:
+                raise exception[0]
+            return result[0]
+        return wrapper
+    return decorator
+
+
+# ============================================================================
 # Pipeline State Definition (extends ArticleState for LangGraph)
 # ============================================================================
 
@@ -76,18 +117,35 @@ class PipelineState(ArticleState):
     """
     Extended state for LangGraph pipeline with annotation support.
 
-    This adds LangGraph-specific fields for graph execution control.
+    This adds LangGraph-specific fields for graph execution control
+    and keys written by pipeline nodes not covered by ArticleState.
     """
     # Graph control
     messages: Annotated[list, add_messages] = []  # For agent communication
     iteration_count: int = 0
     max_iterations: int = 3
 
+    # Style check outputs
+    style_score: Optional[float] = None
+    style_result: Dict[str, Any] = {}
+    style_passed: bool = False
+    style_error: str = ""
+
+    # Escalation outputs
+    escalation_codes: List[str] = []
+    escalation_reasons: List[str] = []
+    iterations_used: int = 0
+
+    # Approval outputs
+    approval_reason: str = ""
+    review_reasons: List[str] = []
+
 
 # ============================================================================
 # Node Functions (Pipeline Phases)
 # ============================================================================
 
+@with_timeout(180)  # 3 minutes for research
 def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     RESEARCH PHASE: Gather verified facts before writing.
@@ -140,6 +198,7 @@ def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@with_timeout(120)  # 2 minutes for generation
 def generate_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     GENERATE PHASE: Write article draft using verified facts.
@@ -186,7 +245,12 @@ TARGET: {platform.upper()} platform
 
 Write the article now. Output ONLY the article content."""
 
+        # call_llm raises LLMError on failure (no more error strings)
         draft = writer.call_llm(prompt, temperature=0.7)
+
+        # BaseAgent validates non-empty; also check minimum article length
+        if len(draft.strip()) < 100:
+            raise ValueError(f"Generated draft too short ({len(draft.strip())} chars)")
 
         # Clean up any meta-commentary
         if draft.startswith("Here") or draft.startswith("I've"):
@@ -213,6 +277,7 @@ Write the article now. Output ONLY the article content."""
         }
 
 
+@with_timeout(300)  # 5 minutes for verification (many claims)
 def verify_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     VERIFY PHASE: Post-generation fact verification.
@@ -272,10 +337,11 @@ def verify_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "verification_status": "error",
             "error_messages": state.get("error_messages", []) + [f"Verification failed: {e}"],
             "current_phase": PHASE_VERIFY,
-            "next_action": PHASE_REVIEW  # Continue anyway but flag
+            "next_action": PHASE_ESCALATE  # Do not proceed without verification
         }
 
 
+@with_timeout(300)  # 5 minutes for review (10 experts)
 def review_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     REVIEW PHASE: Multi-model adversarial panel review.
@@ -348,6 +414,7 @@ def review_node(state: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+@with_timeout(120)  # 2 minutes for revision
 def revise_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     REVISE PHASE: Fix issues identified by panel or verification.
@@ -410,7 +477,12 @@ IMPORTANT:
 - Make the content feel human-written, not AI-generated
 """
 
+        # call_llm raises LLMError on failure (no more error strings)
         revised = writer.call_llm(prompt, temperature=0.7)
+
+        # BaseAgent validates non-empty; also check minimum revision length
+        if len(revised.strip()) < 100:
+            raise ValueError(f"Revised draft too short ({len(revised.strip())} chars)")
 
         # Clean up
         if revised.startswith("Here") or revised.startswith("I've"):
@@ -499,6 +571,7 @@ def approve_node(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+@with_timeout(60)  # 1 minute for style check
 def style_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     STYLE CHECK PHASE: Quantitative voice fingerprinting.
@@ -548,10 +621,11 @@ def style_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "updated_at": datetime.now().isoformat()
         }
     except ImportError:
-        print("  StyleEnforcerAgent not available, skipping")
+        print("  StyleEnforcerAgent not available — flagging for review")
         return {
             "style_score": None,
-            "style_passed": True,
+            "style_passed": False,
+            "style_error": "StyleEnforcerAgent unavailable (missing dependency)",
             "current_phase": PHASE_STYLE_CHECK,
             "updated_at": datetime.now().isoformat()
         }
@@ -559,7 +633,8 @@ def style_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
         print(f"  Style check error: {e}")
         return {
             "style_score": None,
-            "style_passed": True,
+            "style_passed": False,
+            "style_error": f"Style check failed: {e}",
             "current_phase": PHASE_STYLE_CHECK,
             "updated_at": datetime.now().isoformat()
         }
@@ -764,13 +839,27 @@ def create_pipeline(checkpointer: Optional[SqliteSaver] = None) -> StateGraph:
     Create the LangGraph pipeline for article generation.
 
     Args:
-        checkpointer: Optional SQLite checkpointer for persistence
+        checkpointer: Optional SQLite checkpointer for persistence.
+                      If None, a default SQLite checkpointer is created automatically.
 
     Returns:
         Compiled StateGraph ready for execution
     """
+    # Default to SQLite checkpointing for crash resilience
+    if checkpointer is None:
+        try:
+            import sqlite3
+            db_path = config.paths.TEMP_DIR / ".pipeline_checkpoints.db"
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(str(db_path), check_same_thread=False)
+            checkpointer = SqliteSaver(conn)
+            print(f"  Checkpointing enabled: {db_path}")
+        except Exception as e:
+            print(f"  Checkpointing unavailable ({e}), running without persistence")
+            checkpointer = None
+
     # Create graph
-    builder = StateGraph(dict)  # Using dict for flexibility
+    builder = StateGraph(PipelineState)  # Typed state with validation
 
     # Add nodes
     builder.add_node(PHASE_RESEARCH, research_node)
@@ -895,16 +984,27 @@ def run_pipeline(
         platform=platform
     )
 
-    # Run pipeline
+    # Run pipeline (thread_id required when checkpointing is enabled)
     config_dict = {}
-    if thread_id:
-        config_dict["configurable"] = {"thread_id": thread_id}
+    if not thread_id:
+        import uuid
+        thread_id = str(uuid.uuid4())[:8]
+    config_dict["configurable"] = {"thread_id": thread_id}
 
-    final_state = None
+    final_state = dict(initial_state)  # Start with copy of initial state
     for state in pipeline.stream(initial_state, config=config_dict):
-        # Get the last state from each step
         for node_name, node_state in state.items():
-            final_state = {**initial_state, **node_state} if final_state is None else {**final_state, **node_state}
+            # Merge with special handling for list fields (append, don't replace)
+            for key, value in node_state.items():
+                if key == "error_messages" and isinstance(value, list):
+                    existing = final_state.get("error_messages", [])
+                    new_errors = [e for e in value if e not in existing]
+                    final_state["error_messages"] = existing + new_errors
+                elif key == "reviewer_feedback" and isinstance(value, list):
+                    existing = final_state.get("reviewer_feedback", [])
+                    final_state["reviewer_feedback"] = existing + [v for v in value if v not in existing]
+                else:
+                    final_state[key] = value
             print(f"  [{node_name}] -> {node_state.get('next_action', 'unknown')}")
 
             # Track provenance for each phase

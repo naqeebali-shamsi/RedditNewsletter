@@ -20,6 +20,9 @@ google-genai>=1.52.0
 Pillow
 groq
 
+# Resilience
+tenacity>=8.2.0
+
 # Style Enforcement
 lexicalrichness>=0.5
 nltk>=3.8

@@ -11,6 +11,7 @@ import sys
 import os
 from pathlib import Path
 from datetime import datetime
+import html
 import json
 import time
 
@@ -20,6 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
+
+# Centralized configuration
+from execution.config import config, OUTPUT_DIR, PROJECT_ROOT
 
 # Page config
 st.set_page_config(
@@ -965,6 +969,50 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def safe_html(text: str) -> str:
+    """Escape HTML entities in dynamic text before injection into unsafe_allow_html."""
+    return html.escape(str(text)) if text else ""
+
+
+GENERATION_COOLDOWN_SECONDS = 30  # Minimum time between generations
+
+
+def can_generate() -> tuple:
+    """Check if generation is allowed (cooldown, concurrent limit)."""
+    last_gen = st.session_state.get("last_generation_time", 0)
+    elapsed = time.time() - last_gen
+
+    if elapsed < GENERATION_COOLDOWN_SECONDS:
+        remaining = int(GENERATION_COOLDOWN_SECONDS - elapsed)
+        return False, f"Please wait {remaining}s before generating again"
+
+    if st.session_state.is_running:
+        return False, "A generation is already in progress"
+
+    return True, ""
+
+
+def check_auth():
+    """Simple password gate for dashboard access."""
+    dashboard_password = os.getenv("DASHBOARD_PASSWORD")
+    if not dashboard_password:
+        return True  # No password configured, allow access (dev mode)
+
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        st.markdown('<p class="main-header">GhostWriter</p>', unsafe_allow_html=True)
+        password = st.text_input("Dashboard Password", type="password")
+        if st.button("Login"):
+            if password == dashboard_password:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Incorrect password")
+        st.stop()
+
+
 def init_session_state():
     """Initialize session state variables."""
     defaults = {
@@ -991,7 +1039,7 @@ def get_draft_history():
     Returns:
         List of dicts with filename, title, date, filepath, word_count, read_time
     """
-    drafts_dir = Path("n:/RedditNews/drafts")
+    drafts_dir = OUTPUT_DIR
     if not drafts_dir.exists():
         return []
 
@@ -1007,7 +1055,7 @@ def get_draft_history():
             else:
                 date_formatted = md_file.stat().st_mtime
                 date_formatted = datetime.fromtimestamp(date_formatted).strftime("%Y-%m-%d %H:%M")
-        except:
+        except (ValueError, IndexError, OSError):
             date_formatted = "Unknown"
 
         # Extract title and word count from content
@@ -1021,8 +1069,8 @@ def get_draft_history():
                 if not title:
                     title = md_file.stem
                 word_count = len(content.split())
-        except:
-            pass
+        except (IOError, UnicodeDecodeError):
+            pass  # File read error, skip word count
 
         read_time = max(1, word_count // 200)  # Average reading speed
 
@@ -1043,13 +1091,14 @@ def load_draft(filepath):
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             return f.read()
-    except:
+    except (IOError, UnicodeDecodeError, PermissionError) as e:
+        print(f"Failed to load draft {filepath}: {e}")
         return None
 
 
 def save_to_env(key: str, value: str):
     """Save or update a key in .env file."""
-    env_path = Path("n:/RedditNews/.env")
+    env_path = PROJECT_ROOT / ".env"
 
     # Read existing content
     existing = {}
@@ -1080,8 +1129,8 @@ def copy_to_clipboard(text: str, button_text: str = "Copy", key: str = "copy_btn
     """
     import streamlit.components.v1 as components
 
-    # Escape text for JavaScript (handle quotes, newlines, backticks)
-    escaped_text = text.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
+    # Proper JS string escaping via json.dumps (handles all special chars)
+    safe_js_text = json.dumps(text)
 
     components.html(f'''
         <style>
@@ -1127,11 +1176,11 @@ def copy_to_clipboard(text: str, button_text: str = "Copy", key: str = "copy_btn
                 opacity: 1;
             }}
         </style>
-        <button class="copy-btn" onclick="copyToClipboard(this)">{button_text}</button>
-        <div class="toast" id="toast-{key}"><i class="fi fi-rr-check" style="margin-right: 6px;"></i>Copied to clipboard!</div>
+        <button class="copy-btn" onclick="copyToClipboard(this)">{safe_html(button_text)}</button>
+        <div class="toast" id="toast-{safe_html(key)}"><i class="fi fi-rr-check" style="margin-right: 6px;"></i>Copied to clipboard!</div>
         <script>
             function copyToClipboard(btn) {{
-                const text = `{escaped_text}`;
+                const text = {safe_js_text};
                 navigator.clipboard.writeText(text).then(() => {{
                     btn.innerHTML = '<i class="fi fi-rr-check" style="margin-right: 4px;"></i>Copied!';
                     btn.classList.add('copied');
@@ -1151,16 +1200,25 @@ def copy_to_clipboard(text: str, button_text: str = "Copy", key: str = "copy_btn
     ''', height=50)
 
 
+class PipelinePhaseError(Exception):
+    """Raised when a critical pipeline phase fails."""
+    def __init__(self, phase: str, message: str):
+        self.phase = phase
+        super().__init__(f"[{phase}] {message}")
+
+
 def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
     """
     Run the COMPLETE automated pipeline:
     1. Topic Research Agent selects best topic
-    2. Full article generation with all agents
-    3. Quality Gate (adversarial review loop)
-    4. Visual generation
+    2. Fact Research via Perplexity (grounded web search)
+    3. Full article generation with all agents
+    4. Draft Verification via Perplexity
+    5. Quality Gate (adversarial review loop)
+    6. Visual generation
 
     Returns:
-        dict with content, filepath, topic info, images, quality_result
+        dict with content, filepath, topic info, images, quality_result, fact_sheet
     """
     from execution.agents.topic_researcher import TopicResearchAgent
     from execution.agents.editor import EditorAgent
@@ -1170,7 +1228,18 @@ def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
     from execution.agents.visuals import VisualsAgent
     from execution.quality_gate import QualityGate
 
-    output_dir = Path("n:/RedditNews/drafts")
+    # Optional: Perplexity for grounded fact research (if API key available)
+    perplexity_available = bool(os.getenv("PERPLEXITY_API_KEY"))
+    fact_researcher = None
+    if perplexity_available:
+        try:
+            from execution.agents.perplexity_researcher import PerplexityResearchAgent
+            fact_researcher = PerplexityResearchAgent()
+        except Exception as e:
+            print(f"Perplexity init failed: {e}")
+            perplexity_available = False
+
+    output_dir = OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # PHASE 1: TOPIC RESEARCH (0-10%)
@@ -1261,38 +1330,108 @@ def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
     status_callback(f"Topic selected")
     progress_callback(0.10)
 
-    # PHASE 2: AGENT INITIALIZATION (10-15%)
+    # PHASE 1.5: FACT RESEARCH via Perplexity (10-18%)
+    # Gather verified facts BEFORE writing to prevent hallucination
+    fact_sheet = None
+    writer_constraints = ""
+
+    if perplexity_available and fact_researcher:
+        status_callback("Researching facts via Perplexity...")
+        progress_callback(0.12)
+
+        try:
+            # Get source content for context (if available)
+            source_content = selected.get('content', '') or selected.get('body', '')
+
+            fact_sheet = fact_researcher.research_topic(
+                topic=topic,
+                source_content=source_content[:3000] if source_content else ""
+            )
+
+            # Extract writer constraints from fact sheet
+            writer_constraints = fact_sheet.get('writer_constraints', '')
+
+            verified_count = len(fact_sheet.get('verified_facts', []))
+            unverified_count = len(fact_sheet.get('unverified_claims', []))
+            status_callback(f"Found {verified_count} verified facts, {unverified_count} flagged claims")
+
+        except Exception as e:
+            print(f"Fact research failed: {e}")
+            status_callback("Fact research skipped (continuing)")
+
+        progress_callback(0.18)
+    else:
+        status_callback("Skipping fact research (no Perplexity API key)")
+        progress_callback(0.18)
+
+    # PHASE 2: AGENT INITIALIZATION (18-22%)
     status_callback("Initializing agents...")
-    progress_callback(0.12)
+    progress_callback(0.20)
 
     editor = EditorAgent()
     critic = CriticAgent()
     writer = WriterAgent()
     visuals = VisualsAgent()
-    progress_callback(0.15)
-
-    # PHASE 3: OUTLINE (15-25%)
-    status_callback("Creating outline...")
-    progress_callback(0.18)
-    outline = editor.create_outline(topic)
     progress_callback(0.22)
 
-    status_callback("Reviewing outline...")
-    critique = critic.critique_outline(outline)
-    progress_callback(0.25)
+    # PHASE 3: OUTLINE (22-30%)
+    status_callback("Creating outline...")
+    progress_callback(0.24)
+    try:
+        outline = editor.create_outline(topic)
+    except Exception as e:
+        raise PipelinePhaseError("outline", f"Outline creation failed: {e}")
+    progress_callback(0.27)
 
-    # PHASE 4: REFINE OUTLINE (25-30%)
-    status_callback("Refining outline...")
-    refined_outline = editor.call_llm(
-        f"Refine this outline based on critique. Topic angle: {topic_angle}\n\nOutline:\n{outline}\n\nCritique:\n{critique}"
-    )
+    status_callback("Reviewing outline...")
+    try:
+        critique = critic.critique_outline(outline)
+    except Exception as e:
+        # Outline succeeded, critique failed — continue with uncritiqued outline
+        critique = ""
+        status_callback(f"Critique skipped ({e})")
     progress_callback(0.30)
 
-    # PHASE 5: DRAFT (30-50%)
-    status_callback("Writing first draft...")
+    # PHASE 4: REFINE OUTLINE (30-35%)
+    status_callback("Refining outline...")
+    try:
+        refined_outline = editor.call_llm(
+            f"Refine this outline based on critique. Topic angle: {topic_angle}\n\nOutline:\n{outline}\n\nCritique:\n{critique}"
+        )
+        # Validate output is not empty or too short
+        if not refined_outline or len(refined_outline.strip()) < 50:
+            refined_outline = outline  # Fall back to original outline
+    except Exception as e:
+        refined_outline = outline
+        status_callback(f"Refinement skipped ({e})")
     progress_callback(0.35)
+
+    # PHASE 5: DRAFT (35-50%)
+    status_callback("Writing first draft...")
+    progress_callback(0.38)
+
+    # Build draft prompt with fact constraints if available
+    draft_instruction = "Write the full article draft."
+    if writer_constraints:
+        draft_instruction = f"""Write the full article draft.
+
+CRITICAL - FACT CONSTRAINTS FROM RESEARCH:
+{writer_constraints}
+
+You MUST follow these constraints. Only use verified facts. Do NOT invent statistics."""
+
     # Pass source_type to ensure correct voice (external=observer, internal=owner)
-    draft = writer.write_section(refined_outline, critique="Write the full article draft.", source_type=source_type)
+    try:
+        draft = writer.write_section(refined_outline, critique=draft_instruction, source_type=source_type)
+
+        # Validate: catch error string returns from BaseAgent
+        error_prefixes = ["Error:", "Groq Error:", "Gemini Error:", "OpenAI Error:"]
+        if any(draft.strip().startswith(p) for p in error_prefixes):
+            raise ValueError(f"Writer returned error: {draft[:100]}")
+        if len(draft.strip()) < 200:
+            raise ValueError(f"Draft too short ({len(draft)} chars)")
+    except Exception as e:
+        raise PipelinePhaseError("draft", f"Draft generation failed: {e}")
     progress_callback(0.50)
 
     # PHASE 6: SPECIALISTS (50-75%)
@@ -1376,8 +1515,16 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
 
     for name, status_msg, instruction in specialists:
         status_callback(status_msg)
-        specialist = SpecialistAgent(constraint_name=name, constraint_instruction=instruction)
-        draft = specialist.refine(draft)
+        try:
+            specialist = SpecialistAgent(constraint_name=name, constraint_instruction=instruction)
+            result = specialist.refine(draft)
+            # Validate: specialist didn't return error string or empty
+            if result and len(result.strip()) > len(draft.strip()) * 0.3:
+                draft = result
+            else:
+                status_callback(f"{name} output invalid, keeping previous draft")
+        except Exception as e:
+            status_callback(f"{name} failed ({e}), skipping")
         current += progress_per
         progress_callback(current)
 
@@ -1410,9 +1557,62 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
 Output ONLY the polished markdown. No explanations, no meta-commentary."""
     )
     draft = polisher.refine(draft)
-    progress_callback(0.80)
+    progress_callback(0.75)
 
-    # PHASE 8: QUALITY GATE (80-92%)
+    # PHASE 7.5: DRAFT VERIFICATION via Perplexity (75-82%)
+    # Verify claims in draft against real sources before quality gate
+    verification_result = None
+
+    if perplexity_available and fact_researcher:
+        status_callback("Verifying claims via Perplexity...")
+        progress_callback(0.77)
+
+        try:
+            verification_result = fact_researcher.verify_draft(
+                draft=draft,
+                topic=topic
+            )
+
+            # If verification finds issues, apply fixes via specialist
+            recommendation = verification_result.get('recommendation', 'PASS')
+            false_claims = len(verification_result.get('false_claims', []))
+            unverifiable = len(verification_result.get('unverifiable_claims', []))
+
+            if recommendation != 'PASS' and (false_claims > 0 or unverifiable > 2):
+                status_callback(f"Fixing {false_claims} false, {unverifiable} unverifiable claims...")
+
+                revision_instructions = verification_result.get('revision_instructions', '')
+                if revision_instructions:
+                    # Use specialist to apply fact corrections
+                    fact_fixer = SpecialistAgent(
+                        constraint_name="Fact Correction Specialist",
+                        constraint_instruction=f"""You are fixing factual issues identified by web search verification.
+
+{revision_instructions}
+
+INSTRUCTIONS:
+1. Remove or correct FALSE claims (replace with verified alternatives if available)
+2. Remove specific numbers from UNVERIFIABLE claims (write around them)
+3. Keep VERIFIED claims exactly as they are
+4. Maintain the article's flow and voice while fixing facts
+5. Do NOT add new claims or statistics
+
+Output ONLY the corrected article. No explanations."""
+                    )
+                    draft = fact_fixer.refine(draft)
+                    status_callback("Fact corrections applied")
+            else:
+                status_callback(f"Verification passed (score: {verification_result.get('overall_accuracy_score', 'N/A')}/100)")
+
+        except Exception as e:
+            print(f"Draft verification failed: {e}")
+            status_callback("Verification skipped (continuing)")
+
+        progress_callback(0.82)
+    else:
+        progress_callback(0.82)
+
+    # PHASE 8: QUALITY GATE (82-92%)
     # Adversarial expert panel review with REVIEW <-> FIX loop
     status_callback("Quality gate review...")
     progress_callback(0.82)
@@ -1483,10 +1683,14 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
         'quality_score': quality_result.final_score,
         'quality_passed': quality_result.passed,
         'quality_iterations': quality_result.iterations_used,
+        'fact_sheet': fact_sheet,
+        'verification_result': verification_result,
+        'perplexity_used': perplexity_available,
     }
 
 
 def main():
+    check_auth()
     init_session_state()
 
     # Header
@@ -1519,9 +1723,9 @@ def main():
                 # Create clickable card using HTML + button
                 st.markdown(f'''
                 <div class="history-card" data-index="{i}">
-                    <div class="history-card-title">{display_title}</div>
+                    <div class="history-card-title">{safe_html(display_title)}</div>
                     <div class="history-card-meta">
-                        <span class="history-card-date">{item['date']}</span>
+                        <span class="history-card-date">{safe_html(item['date'])}</span>
                         <span class="history-card-stats">{word_count:,} words · {read_time} min</span>
                     </div>
                 </div>
@@ -1552,9 +1756,11 @@ def main():
             google_key = os.getenv("GOOGLE_API_KEY")
             groq_key = os.getenv("GROQ_API_KEY")
             github_token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
+            perplexity_key = os.getenv("PERPLEXITY_API_KEY")
 
             st.caption(f"Groq: {'OK' if groq_key else 'Missing'}")
             st.caption(f"Google: {'OK' if google_key else 'Missing'}")
+            st.caption(f"Perplexity: {'OK (fact verification)' if perplexity_key else 'Missing (optional)'}")
             st.caption(f"GitHub: {'OK (5000 req/hr)' if github_token else 'Anonymous (60 req/hr)'}")
 
             st.markdown('<p class="section-header">Data Source</p>', unsafe_allow_html=True)
@@ -1619,8 +1825,8 @@ def main():
         draft_content = load_draft(st.session_state.viewing_history['filepath'])
 
         if draft_content:
-            st.markdown(f'<div class="topic-display">{st.session_state.viewing_history["title"]}</div>', unsafe_allow_html=True)
-            st.markdown(f'<p class="topic-reasoning">Saved: {st.session_state.viewing_history["date"]}</p>', unsafe_allow_html=True)
+            st.markdown(f'<div class="topic-display">{safe_html(st.session_state.viewing_history["title"])}</div>', unsafe_allow_html=True)
+            st.markdown(f'<p class="topic-reasoning">Saved: {safe_html(st.session_state.viewing_history["date"])}</p>', unsafe_allow_html=True)
 
             st.divider()
 
@@ -1705,18 +1911,23 @@ def main():
 
             st.divider()
 
-        # Generate button - centered and prominent
+        # Generate button - centered and prominent with rate limiting
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
+            can_gen, gen_message = can_generate()
             if st.button(
                 "Generate Article",
                 type="primary",
                 use_container_width=True,
-                disabled=st.session_state.is_running,
+                disabled=not can_gen or st.session_state.is_running,
                 key="main_generate"
             ):
                 st.session_state.is_running = True
+                st.session_state.last_generation_time = time.time()
                 st.rerun()
+
+            if gen_message:
+                st.caption(gen_message)
 
         # Pipeline execution
         if st.session_state.is_running:
@@ -1732,9 +1943,12 @@ def main():
                 "Voice & Tone Agent removes AI-sounding phrases for authentic human voice.",
                 "Value Density Specialist ensures every paragraph earns its place.",
                 "Articles generated here have 3x higher engagement than generic AI content.",
-                "The 10-agent pipeline mimics how top content teams operate.",
+                "The multi-agent pipeline mimics how top content teams operate.",
                 "Storytelling Architect weaves personal narrative for authenticity.",
                 "Each agent specializes in one aspect, just like a real editorial team.",
+                "Perplexity Sonar Pro searches the web to verify every fact before writing.",
+                "The fact verification step catches fabricated statistics and phantom evidence.",
+                "Claims are checked against official documentation and real sources.",
             ]
 
             # Agent icons (Flaticon UIcons)
@@ -1749,16 +1963,20 @@ def main():
             icon_palette = '<i class="fi fi-rr-palette"></i>'
             icon_check = '<i class="fi fi-rr-check"></i>'
             icon_refresh = '<i class="fi fi-rr-refresh"></i>'
+            icon_globe = '<i class="fi fi-rr-globe"></i>'
+            icon_shield = '<i class="fi fi-rr-shield-check"></i>'
 
             # Agent info for display
             agents_info = {
                 "Topic Research": {"icon": icon_search, "name": "Research Agent"},
+                "Fact Research": {"icon": icon_globe, "name": "Perplexity Sonar"},
                 "Initialization": {"icon": icon_gear, "name": "System Init"},
                 "Outline": {"icon": icon_clipboard, "name": "Editor Agent"},
                 "Refinement": {"icon": icon_pencil, "name": "Critic Agent"},
                 "Draft": {"icon": icon_note, "name": "Writer Agent"},
                 "Specialists": {"icon": icon_target, "name": "Specialist Team"},
                 "Polish": {"icon": icon_sparkle, "name": "Polish Agent"},
+                "Verification": {"icon": icon_shield, "name": "Perplexity Verify"},
                 "Quality Gate": {"icon": icon_magnify, "name": "Expert Panel"},
                 "Visuals": {"icon": icon_palette, "name": "Visuals Agent"},
                 "Complete": {"icon": icon_check, "name": "Complete"},
@@ -1780,12 +1998,14 @@ def main():
 
                 phases = [
                     (0.10, "Topic Research"),
-                    (0.15, "Initialization"),
-                    (0.25, "Outline"),
-                    (0.30, "Refinement"),
+                    (0.18, "Fact Research"),
+                    (0.22, "Initialization"),
+                    (0.30, "Outline"),
+                    (0.35, "Refinement"),
                     (0.50, "Draft"),
-                    (0.75, "Specialists"),
-                    (0.80, "Polish"),
+                    (0.70, "Specialists"),
+                    (0.75, "Polish"),
+                    (0.82, "Verification"),
                     (0.92, "Quality Gate"),
                     (0.98, "Visuals"),
                     (1.00, "Complete"),
@@ -1836,8 +2056,13 @@ def main():
                 </div>
                 ''', unsafe_allow_html=True)
 
+            status_display = st.empty()
+
             def update_status(message):
-                pass  # Status is now integrated into the progress card
+                status_display.markdown(
+                    f'<div class="status-text">{safe_html(message)}</div>',
+                    unsafe_allow_html=True
+                )
 
             try:
                 result = run_full_pipeline(update_progress, update_status, provided_topic=st.session_state.get('custom_topic'))
@@ -1900,9 +2125,9 @@ def main():
         </div>
         ''', unsafe_allow_html=True)
 
-        st.markdown(f'<div class="topic-display">{st.session_state.selected_topic}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="topic-display">{safe_html(st.session_state.selected_topic)}</div>', unsafe_allow_html=True)
         if st.session_state.topic_reasoning:
-            st.markdown(f'<p class="topic-reasoning">{st.session_state.topic_reasoning}</p>', unsafe_allow_html=True)
+            st.markdown(f'<p class="topic-reasoning">{safe_html(st.session_state.topic_reasoning)}</p>', unsafe_allow_html=True)
 
         st.divider()
 

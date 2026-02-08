@@ -14,13 +14,22 @@ Usage:
     result = source.fetch()
 """
 
+import json
+import sqlite3
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
     import requests
 except ImportError:
     requests = None
+
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    _has_tenacity = True
+except ImportError:
+    _has_tenacity = False
 
 from .base_source import (
     ContentSource,
@@ -30,6 +39,9 @@ from .base_source import (
     TrustTier,
 )
 from . import register_source
+
+# Database path (shared with reddit_source)
+DB_PATH = Path(__file__).parent.parent.parent / "reddit_content.db"
 
 # HackerNews Firebase API base URL
 HN_API_BASE = "https://hacker-news.firebaseio.com/v0"
@@ -70,6 +82,24 @@ class HackerNewsSource(ContentSource):
         if not isinstance(max_stories, int) or max_stories < 1:
             raise ValueError("max_stories must be a positive integer")
 
+    def _fetch_top_story_ids(self) -> List[int]:
+        """Fetch top story IDs from HN API. Retried if tenacity is available."""
+        resp = requests.get(
+            f"{HN_API_BASE}/topstories.json",
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def _fetch_item(self, story_id: int) -> Optional[Dict[str, Any]]:
+        """Fetch a single HN item. Retried if tenacity is available."""
+        item_resp = requests.get(
+            f"{HN_API_BASE}/item/{story_id}.json",
+            timeout=self.timeout,
+        )
+        item_resp.raise_for_status()
+        return item_resp.json()
+
     def fetch(
         self,
         limit: Optional[int] = None,
@@ -91,12 +121,7 @@ class HackerNewsSource(ContentSource):
 
         try:
             # Step 1: Get top story IDs
-            resp = requests.get(
-                f"{HN_API_BASE}/topstories.json",
-                timeout=self.timeout,
-            )
-            resp.raise_for_status()
-            story_ids = resp.json()
+            story_ids = self._fetch_top_story_ids()
 
             if not story_ids:
                 return FetchResult(items=[], success=True, items_fetched=0)
@@ -114,12 +139,7 @@ class HackerNewsSource(ContentSource):
         # Step 2: Fetch individual story details
         for story_id in story_ids:
             try:
-                item_resp = requests.get(
-                    f"{HN_API_BASE}/item/{story_id}.json",
-                    timeout=self.timeout,
-                )
-                item_resp.raise_for_status()
-                raw_item = item_resp.json()
+                raw_item = self._fetch_item(story_id)
 
                 if raw_item is None:
                     continue
@@ -233,6 +253,65 @@ class HackerNewsSource(ContentSource):
             "required": [],
         }
 
+    def insert_to_unified_db(self, items: List[ContentItem]) -> int:
+        """
+        Insert items to unified 'content_items' table.
+
+        Args:
+            items: List of ContentItems to insert
+
+        Returns:
+            Number of new items inserted
+        """
+        if not items:
+            return 0
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        inserted = 0
+        for item in items:
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO content_items (source_type, source_id, title, content,
+                                              author, url, timestamp, trust_tier,
+                                              metadata, retrieved_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item.source_type.value,
+                        item.source_id,
+                        item.title,
+                        item.content,
+                        item.author,
+                        item.url,
+                        item.timestamp,
+                        item.trust_tier.value,
+                        json.dumps(item.metadata) if item.metadata else None,
+                        item.retrieved_at,
+                    ),
+                )
+                inserted += 1
+            except sqlite3.IntegrityError:
+                # Duplicate source_type + source_id, skip
+                pass
+
+        conn.commit()
+        conn.close()
+        return inserted
+
+
+# Apply retry decorator to network fetches if tenacity is available
+if _has_tenacity:
+    _retry_decorator = retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout)),
+    )
+    HackerNewsSource._fetch_top_story_ids = _retry_decorator(HackerNewsSource._fetch_top_story_ids)
+    HackerNewsSource._fetch_item = _retry_decorator(HackerNewsSource._fetch_item)
+
 
 # =========================================================================
 # CLI Entry Point
@@ -250,6 +329,10 @@ def main():
     parser.add_argument(
         "--hours", type=int, default=24,
         help="Only include stories from last N hours (default: 24)",
+    )
+    parser.add_argument(
+        "--no-db", action="store_true",
+        help="Skip writing to unified content_items table",
     )
 
     args = parser.parse_args()
@@ -276,6 +359,11 @@ def main():
 
     if result.items_fetched > 5:
         print(f"  ... and {result.items_fetched - 5} more")
+
+    # Write to unified DB by default (pulse_aggregator reads from here)
+    if not args.no_db:
+        unified_inserted = source.insert_to_unified_db(result.items)
+        print(f"  [+] Inserted {unified_inserted} to unified 'content_items' table")
 
     print(f"\n{'='*60}")
     print("Done")

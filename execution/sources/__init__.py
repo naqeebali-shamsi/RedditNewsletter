@@ -17,6 +17,8 @@ Usage:
     all_items = SourceFactory.fetch_all()
 """
 
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Type
 
 from .base_source import (
@@ -26,6 +28,9 @@ from .base_source import (
     SourceType,
     TrustTier,
 )
+from .circuit_breaker import SourceCircuit, AllSourcesFailedError
+
+_logger = logging.getLogger("ghostwriter.sources")
 
 # Registry of source implementations
 _SOURCE_REGISTRY: Dict[SourceType, Type[ContentSource]] = {}
@@ -118,18 +123,24 @@ class SourceManager:
     Manages multiple content sources for coordinated fetching.
 
     Used by fetch_all.py to orchestrate multi-source content ingestion.
+    Includes circuit breaker per source and concurrent fetching.
     """
 
     def __init__(self):
         self._sources: Dict[SourceType, ContentSource] = {}
+        self._circuits: Dict[SourceType, SourceCircuit] = {}
 
     def add_source(self, source: ContentSource) -> None:
         """Add a configured source to the manager."""
         self._sources[source.source_type] = source
+        self._circuits[source.source_type] = SourceCircuit(
+            source_type=source.source_type.value
+        )
 
     def remove_source(self, source_type: SourceType) -> None:
         """Remove a source from the manager."""
         self._sources.pop(source_type, None)
+        self._circuits.pop(source_type, None)
 
     def get_source(self, source_type: SourceType) -> Optional[ContentSource]:
         """Get a specific source if configured."""
@@ -139,13 +150,34 @@ class SourceManager:
         """Get all configured sources."""
         return list(self._sources.values())
 
+    def health_report(self) -> dict:
+        """Check health of all registered and configured sources."""
+        registered = SourceFactory.get_registered_sources()
+        expected = [SourceType.REDDIT, SourceType.HACKERNEWS, SourceType.RSS]
+        missing = [s for s in expected if s not in registered]
+
+        return {
+            "registered_sources": [s.value for s in registered],
+            "expected_sources": [s.value for s in expected],
+            "missing_sources": [s.value for s in missing],
+            "import_warnings": _IMPORT_WARNINGS,
+            "circuit_states": {
+                st.value: {"state": c.state, "failures": c.failure_count}
+                for st, c in self._circuits.items()
+            },
+            "healthy": len(missing) == 0,
+        }
+
     def fetch_all(
         self,
         limit_per_source: Optional[int] = None,
         since: Optional[int] = None
     ) -> Dict[SourceType, FetchResult]:
         """
-        Fetch content from all configured sources.
+        Fetch content from all configured sources concurrently.
+
+        Uses ThreadPoolExecutor for parallel fetching and circuit breakers
+        to skip sources that have been consistently failing.
 
         Args:
             limit_per_source: Max items per source (None = source default)
@@ -153,21 +185,67 @@ class SourceManager:
 
         Returns:
             Dict mapping source type to FetchResult
+
+        Raises:
+            AllSourcesFailedError: If every configured source fails
         """
         results: Dict[SourceType, FetchResult] = {}
 
+        # Check circuit breakers first and filter to attemptable sources
+        attemptable: Dict[SourceType, ContentSource] = {}
         for source_type, source in self._sources.items():
-            try:
-                results[source_type] = source.fetch(
-                    limit=limit_per_source,
-                    since=since
-                )
-            except Exception as e:
+            circuit = self._circuits.get(source_type)
+            if circuit and not circuit.should_attempt():
                 results[source_type] = FetchResult(
                     items=[],
                     success=False,
-                    error_message=str(e)
+                    error_message=(
+                        f"Circuit open (last {circuit.failure_count} attempts failed)"
+                    ),
                 )
+                continue
+            attemptable[source_type] = source
+
+        def _fetch_one(source_type, source):
+            try:
+                return source_type, source.fetch(
+                    limit=limit_per_source, since=since
+                )
+            except Exception as e:
+                return source_type, FetchResult(
+                    items=[], success=False, error_message=str(e)
+                )
+
+        # Fetch concurrently
+        if attemptable:
+            with ThreadPoolExecutor(max_workers=len(attemptable)) as executor:
+                futures = {
+                    executor.submit(_fetch_one, st, s): st
+                    for st, s in attemptable.items()
+                }
+                for future in as_completed(futures):
+                    source_type, result = future.result()
+                    results[source_type] = result
+
+                    # Update circuit breaker
+                    circuit = self._circuits.get(source_type)
+                    if circuit:
+                        if result.success:
+                            circuit.record_success()
+                        else:
+                            circuit.record_failure()
+
+        # Check minimum source threshold
+        successful = sum(1 for r in results.values() if r.success)
+        if successful == 0 and len(results) > 0:
+            error_details = "; ".join(
+                f"{st.value}: {r.error_message}"
+                for st, r in results.items()
+                if r.error_message
+            )
+            raise AllSourcesFailedError(
+                f"All {len(results)} sources failed. Errors: {error_details}"
+            )
 
         return results
 
@@ -186,25 +264,31 @@ class SourceManager:
 
 # Auto-import available sources to register them
 # Each source module uses @register_source decorator
+_IMPORT_WARNINGS: List[str] = []
+
 try:
     from . import reddit_source
-except ImportError:
-    pass
+except ImportError as e:
+    _IMPORT_WARNINGS.append(f"RedditSource unavailable: {e}")
+    _logger.warning(f"RedditSource import failed: {e}")
 
 try:
     from . import gmail_source
-except ImportError:
-    pass
+except ImportError as e:
+    _IMPORT_WARNINGS.append(f"GmailSource unavailable: {e}")
+    _logger.warning(f"GmailSource import failed: {e}")
 
 try:
     from . import hackernews_source
-except ImportError:
-    pass
+except ImportError as e:
+    _IMPORT_WARNINGS.append(f"HackerNewsSource unavailable: {e}")
+    _logger.warning(f"HackerNewsSource import failed: {e}")
 
 try:
     from . import rss_source
-except ImportError:
-    pass
+except ImportError as e:
+    _IMPORT_WARNINGS.append(f"RSSSource unavailable: {e}")
+    _logger.warning(f"RSSSource import failed: {e}")
 
 
 # Export public API
@@ -220,4 +304,6 @@ __all__ = [
     "SourceFactory",
     "SourceManager",
     "register_source",
+    # Error types
+    "AllSourcesFailedError",
 ]

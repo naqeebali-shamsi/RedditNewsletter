@@ -1,4 +1,4 @@
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, LLMError
 import json
 from typing import List, Dict, Optional
 
@@ -49,11 +49,10 @@ Output format: JSON array. Example:
 
 IMPORTANT: The "prompt" field must contain a detailed image generation prompt, not just a description.
 """
-        response = self.call_llm(prompt, temperature=0.5)
-
-        # Handle empty response
-        if not response or not response.strip():
-            print(f"  [Visuals] LLM returned empty response")
+        try:
+            response = self.call_llm(prompt, temperature=0.5)
+        except LLMError as e:
+            print(f"  [Visuals] LLM call failed: {e}")
             return []
 
         original_response = response  # Keep for debug

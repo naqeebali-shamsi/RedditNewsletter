@@ -65,7 +65,7 @@ OUTPUT: Return JSON with:
 - suspicious_claims: [{claim, red_flag}]
 """
 
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "gemini-3-flash-preview"):
         """
         Initialize the Gemini research agent.
 
@@ -192,7 +192,7 @@ Be thorough. Search for EVERY specific claim."""
         prompt = f"""{self.FACTCHECKER_PERSONA}
 
 DRAFT TO VERIFY:
-{draft[:4000]}
+{draft[:12000]}
 
 TOPIC CONTEXT: {topic}
 

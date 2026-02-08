@@ -28,6 +28,12 @@ try:
 except ImportError:
     requests = None
 
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    _has_tenacity = True
+except ImportError:
+    _has_tenacity = False
+
 from .base_source import (
     ContentSource,
     ContentItem,
@@ -157,6 +163,7 @@ class RedditSource(ContentSource):
     def _fetch_subreddit_rss(self, subreddit_name: str) -> List[Dict[str, Any]]:
         """
         Fetch raw posts from a subreddit's RSS feed.
+        Retries up to 3 times on network errors if tenacity is available.
 
         Args:
             subreddit_name: Name of subreddit (without r/)
@@ -372,6 +379,15 @@ class RedditSource(ContentSource):
         return inserted
 
 
+# Apply retry decorator to network fetch if tenacity is available
+if _has_tenacity:
+    RedditSource._fetch_subreddit_rss = retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout)),
+    )(RedditSource._fetch_subreddit_rss)
+
+
 # =========================================================================
 # CLI Entry Point (for backward compatibility with fetch_reddit.py)
 # =========================================================================
@@ -392,7 +408,8 @@ def main():
         "--hours", type=int, default=72, help="Only fetch posts from last N hours (default: 72)"
     )
     parser.add_argument(
-        "--unified", action="store_true", help="Also insert to unified content_items table"
+        "--unified", action="store_true",
+        help="(deprecated, now always enabled) Insert to unified content_items table"
     )
 
     args = parser.parse_args()
@@ -425,10 +442,9 @@ def main():
     legacy_inserted = source.insert_to_legacy_db(result.items)
     print(f"✓ Inserted {legacy_inserted} to legacy 'posts' table")
 
-    # Optionally insert to unified table
-    if args.unified:
-        unified_inserted = source.insert_to_unified_db(result.items)
-        print(f"✓ Inserted {unified_inserted} to unified 'content_items' table")
+    # Always write to unified table (pulse_aggregator reads from here)
+    unified_inserted = source.insert_to_unified_db(result.items)
+    print(f"✓ Inserted {unified_inserted} to unified 'content_items' table")
 
     print(f"\n{'='*60}")
     print(f"✓ Done")

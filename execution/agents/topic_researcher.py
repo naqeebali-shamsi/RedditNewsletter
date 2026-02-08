@@ -12,7 +12,7 @@ Target: Passive recruiting visibility for AI Engineers in 2026
 import time
 import json
 from typing import List, Dict, Optional
-from .base_agent import BaseAgent
+from .base_agent import BaseAgent, LLMError
 
 
 # Subreddits optimized for AI Engineer content
@@ -172,29 +172,35 @@ Your response MUST be valid JSON with this exact structure:
 
 Think strategically. This content needs to position the author as someone companies WANT to hire."""
 
-        response = self.call_llm(prompt, temperature=0.3)
+        try:
+            response = self.call_llm(prompt, temperature=0.3)
+        except LLMError as e:
+            print(f"  [!] LLM call failed during topic analysis: {e}")
+            # Fall through to fallback logic below
+            response = None
 
         # Parse response
-        try:
-            # Strip markdown if present
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0]
+        if response:
+            try:
+                # Strip markdown if present
+                if "```json" in response:
+                    response = response.split("```json")[1].split("```")[0]
+                elif "```" in response:
+                    response = response.split("```")[1].split("```")[0]
 
-            result = json.loads(response.strip())
+                result = json.loads(response.strip())
 
-            # Get the actual topic
-            idx = result.get('selected_number', 1) - 1
-            if 0 <= idx < len(topics):
-                selected_topic = topics[idx]
-                selected_topic['reasoning'] = result.get('reasoning', '')
-                selected_topic['angle'] = result.get('angle', '')
-                selected_topic['recruiter_appeal'] = result.get('recruiter_appeal', '')
-                return selected_topic
+                # Get the actual topic
+                idx = result.get('selected_number', 1) - 1
+                if 0 <= idx < len(topics):
+                    selected_topic = topics[idx]
+                    selected_topic['reasoning'] = result.get('reasoning', '')
+                    selected_topic['angle'] = result.get('angle', '')
+                    selected_topic['recruiter_appeal'] = result.get('recruiter_appeal', '')
+                    return selected_topic
 
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            print(f"  [!] Parse error: {e}")
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                print(f"  [!] Parse error: {e}")
 
         # Fallback to first AI-relevant topic
         for t in topics:

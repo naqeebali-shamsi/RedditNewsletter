@@ -252,11 +252,54 @@ class BaseAgent:
         return stripped
 
     # ------------------------------------------------------------------
+    # Prompt caching
+    # ------------------------------------------------------------------
+
+    def _prepare_cached_messages(self, system_prompt: str, user_prompt: str) -> list:
+        """Structure messages with cache-control hints for supported providers.
+
+        Anthropic Claude supports explicit cache_control on message blocks.
+        OpenAI auto-caches prompts >1024 tokens — no code changes needed.
+        Other providers get the standard messages format.
+        """
+        if self.provider == "anthropic":
+            # Claude supports cache_control on message content blocks
+            return [
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral"}
+                        }
+                    ]
+                },
+                {"role": "user", "content": user_prompt}
+            ]
+        # OpenAI auto-caches; Groq/Gemini use standard format
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+    # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
 
-    def call_llm(self, prompt, system_instruction=None, temperature=0.7):
+    def call_llm(self, prompt, system_instruction=None, temperature=0.7,
+                 system_prompt=None):
         """Standardized call to the underlying LLM.
+
+        Args:
+            prompt: The user/dynamic prompt content.
+            system_instruction: Additional instructions appended to the
+                default role/persona system prompt.
+            temperature: Sampling temperature.
+            system_prompt: Optional fully-formed static system prompt.
+                When provided, this replaces the auto-generated
+                role/persona preamble entirely. Use this for agents with
+                long, stable persona text so providers can cache it.
 
         Raises:
             LLMNotConfiguredError: No provider configured.
@@ -265,18 +308,25 @@ class BaseAgent:
         if self.client_type == "unknown":
             raise LLMNotConfiguredError("No LLM provider is configured.")
 
-        full_system_prompt = f"You are the {self.role}.\nPersona: {self.persona}\n"
-        if system_instruction:
-            full_system_prompt += f"\nSpecific Instructions:\n{system_instruction}"
+        if system_prompt is not None:
+            # Caller supplied a complete static system prompt (cacheable).
+            full_system_prompt = system_prompt
+            if system_instruction:
+                full_system_prompt += f"\nSpecific Instructions:\n{system_instruction}"
+        else:
+            # Default: build from role + persona
+            full_system_prompt = f"You are the {self.role}.\nPersona: {self.persona}\n"
+            if system_instruction:
+                full_system_prompt += f"\nSpecific Instructions:\n{system_instruction}"
+
+        # Build messages — uses cache-control hints when the provider supports it
+        messages = self._prepare_cached_messages(full_system_prompt, prompt)
 
         if self.client_type == "groq":
             def _groq_call():
                 resp = self.client.chat.completions.create(
                     model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": full_system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
+                    messages=messages,
                     temperature=temperature
                 )
                 return resp.choices[0].message.content
@@ -304,10 +354,7 @@ class BaseAgent:
             def _openai_call():
                 resp = self.client.chat.completions.create(
                     model=self.model_name,
-                    messages=[
-                        {"role": "system", "content": full_system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
+                    messages=messages,
                     temperature=temperature
                 )
                 return resp.choices[0].message.content
@@ -316,3 +363,48 @@ class BaseAgent:
             return self._validate_response(result, "OpenAI")
 
         raise ProviderError(self.provider, "Unsupported client type")
+
+    def generate(self, prompt: str, expect_json: bool = False,
+                 system_prompt: str = None):
+        """Generate LLM response, optionally parsing as JSON.
+
+        Convenience wrapper around call_llm() for agents that need
+        structured JSON output.
+
+        Args:
+            prompt: The user/dynamic prompt content.
+            expect_json: If True, parse the response as JSON.
+            system_prompt: Optional static system prompt for caching.
+                Passed through to call_llm().
+        """
+        response = self.call_llm(prompt, system_prompt=system_prompt)
+        if expect_json:
+            from execution.utils.json_parser import extract_json_from_llm
+            return extract_json_from_llm(response, default={})
+        return response
+
+    # ------------------------------------------------------------------
+    # Async variants for parallel execution
+    # ------------------------------------------------------------------
+
+    async def call_llm_async(self, prompt: str, **kwargs) -> str:
+        """Async variant of call_llm for parallel execution.
+
+        Uses run_in_executor to run the sync call_llm in a thread pool,
+        enabling real parallelism for I/O-bound LLM calls without
+        requiring async provider SDK setup.
+        """
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.call_llm(prompt, **kwargs)
+        )
+
+    async def generate_async(self, prompt: str, expect_json: bool = False,
+                             system_prompt: str = None):
+        """Async variant of generate() for parallel execution."""
+        response = await self.call_llm_async(prompt, system_prompt=system_prompt)
+        if expect_json:
+            from execution.utils.json_parser import extract_json_from_llm
+            return extract_json_from_llm(response, default={})
+        return response

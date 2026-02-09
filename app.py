@@ -10,7 +10,7 @@ import streamlit as st
 import sys
 import os
 from pathlib import Path
-from datetime import datetime
+from execution.utils.datetime_utils import utc_now
 import html
 import json
 import time
@@ -1669,7 +1669,7 @@ def _phase_save_article(draft, image_paths, progress_callback, status_callback):
     output_dir = OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = utc_now().strftime("%Y%m%d_%H%M%S")
     filename = f"medium_full_{timestamp}.md"
     filepath = output_dir / filename
 

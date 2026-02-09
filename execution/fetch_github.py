@@ -16,6 +16,8 @@ import os
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
+
+from execution.utils.datetime_utils import utc_now
 from dotenv import load_dotenv
 from tenacity import (
     retry,
@@ -118,7 +120,7 @@ def fetch_repo_commits(owner, repo, max_commits=50, since_hours=168):
         headers["Authorization"] = f"Bearer {token}"
 
     # Calculate since date
-    since_date = (datetime.utcnow() - timedelta(hours=since_hours)).isoformat() + "Z"
+    since_date = (utc_now() - timedelta(hours=since_hours)).isoformat()
 
     url = f"https://api.github.com/repos/{owner}/{repo}/commits"
     params = {

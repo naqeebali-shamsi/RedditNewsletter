@@ -21,7 +21,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from datetime import datetime
+from execution.utils.datetime_utils import utc_iso
 from dataclasses import dataclass, asdict
 from typing import Optional, List, Tuple
 
@@ -179,7 +179,7 @@ class QualityGate:
                         final_content=current_content,
                         revision_history=[],
                         escalated=True,
-                        timestamp=datetime.now().isoformat(),
+                        timestamp=utc_iso(),
                         verification_passed=False,
                         verified_claim_count=verification_result.get("verified_count", 0),
                         unverified_claim_count=verification_result.get("unverified_count", 0),
@@ -251,7 +251,7 @@ class QualityGate:
                     final_content=final_content,
                     revision_history=revision_history,
                     escalated=False,
-                    timestamp=datetime.now().isoformat(),
+                    timestamp=utc_iso(),
                     verification_passed=verification_result.get("passed", True),
                     verified_claim_count=verification_result.get("verified_count", 0),
                     unverified_claim_count=verification_result.get("unverified_count", 0),
@@ -294,7 +294,7 @@ class QualityGate:
             final_content=current_content,
             revision_history=revision_history,
             escalated=True,
-            timestamp=datetime.now().isoformat(),
+            timestamp=utc_iso(),
             verification_passed=verification_result.get("passed", True),
             verified_claim_count=verification_result.get("verified_count", 0),
             unverified_claim_count=verification_result.get("unverified_count", 0),

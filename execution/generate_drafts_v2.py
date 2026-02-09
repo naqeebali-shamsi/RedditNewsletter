@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""
-Generate Quality-Gated Drafts (v2)
+"""Simple agent-based draft generation with quality gate.
 
-This replaces the template-based generate_drafts.py with an agent-driven
-pipeline that includes adversarial review.
+For full pipeline with research, fact verification, specialist refinement,
+and visual generation, use generate_medium_full.py instead.
+
+This module provides a lighter-weight alternative that skips the research
+and specialist passes but still runs WriterAgent + AdversarialPanel quality
+gate loop. Use this when you want quick, quality-gated drafts without the
+full multi-agent pipeline overhead.
 
 Flow:
 1. Fetch signal content from database
@@ -24,7 +28,7 @@ import sqlite3
 import argparse
 import sys
 from pathlib import Path
-from datetime import datetime
+from execution.utils.datetime_utils import utc_now
 from typing import Any, Dict, List, Optional
 
 # Add parent to path
@@ -120,7 +124,7 @@ def save_draft_to_db(content_id: int, platform: str, draft_content: str, quality
     cursor.execute("""
         INSERT INTO drafts (post_id, platform, draft_content, generated_at, published)
         VALUES (?, ?, ?, ?, 0)
-    """, (content_id, platform, draft_content, int(datetime.now().timestamp())))
+    """, (content_id, platform, draft_content, int(utc_now().timestamp())))
 
     draft_id = cursor.lastrowid
     conn.commit()
@@ -138,7 +142,7 @@ def export_draft_to_file(
     """Export approved draft to file with quality metadata."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = utc_now().strftime("%Y%m%d_%H%M%S")
     status = "approved" if quality_result.passed else "escalated"
     filename = f"{platform}_{timestamp}_{draft_id}_{status}.md"
     filepath = OUTPUT_DIR / filename

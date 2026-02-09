@@ -1666,5 +1666,162 @@ class TestJinja2XSSPrevention:
             "puter_bridge.py must enable Jinja2 autoescape"
 
 
+# ============================================================================
+# P2 Tests
+# ============================================================================
+
+class TestP2GenerateMethod:
+    """P2-A: BaseAgent.generate() method."""
+
+    def test_generate_method_exists(self):
+        from execution.agents.base_agent import BaseAgent
+        assert hasattr(BaseAgent, 'generate')
+
+    def test_generate_async_method_exists(self):
+        from execution.agents.base_agent import BaseAgent
+        assert hasattr(BaseAgent, 'generate_async')
+        assert hasattr(BaseAgent, 'call_llm_async')
+
+class TestP2DatetimeUtils:
+    """P2-F: Timezone-aware datetime utilities."""
+
+    def test_utc_now_is_timezone_aware(self):
+        from execution.utils.datetime_utils import utc_now
+        dt = utc_now()
+        assert dt.tzinfo is not None
+
+    def test_utc_iso_format(self):
+        from execution.utils.datetime_utils import utc_iso
+        iso = utc_iso()
+        assert "+" in iso or "Z" in iso  # timezone info present
+
+    def test_parse_iso_naive_assumes_utc(self):
+        from execution.utils.datetime_utils import parse_iso
+        dt = parse_iso("2024-01-01T12:00:00")
+        assert dt.tzinfo is not None
+
+    def test_parse_iso_empty_string(self):
+        from execution.utils.datetime_utils import parse_iso
+        dt = parse_iso("")
+        assert dt.tzinfo is not None
+
+    def test_format_duration(self):
+        from execution.utils.datetime_utils import format_duration
+        assert format_duration(30) == "30.0s"
+        assert format_duration(90) == "1.5m"
+        assert format_duration(7200) == "2.0h"
+
+class TestP2AtomicFileOps:
+    """P2-G: Atomic file I/O."""
+
+    def test_atomic_write_creates_file(self, tmp_path):
+        from execution.utils.file_ops import atomic_write
+        filepath = tmp_path / "test.txt"
+        atomic_write(filepath, "hello world")
+        assert filepath.read_text() == "hello world"
+
+    def test_atomic_write_json(self, tmp_path):
+        import json
+        from execution.utils.file_ops import atomic_write_json
+        filepath = tmp_path / "test.json"
+        atomic_write_json(filepath, {"key": "value"})
+        data = json.loads(filepath.read_text())
+        assert data == {"key": "value"}
+
+    def test_safe_read_json_missing_file(self, tmp_path):
+        from execution.utils.file_ops import safe_read_json
+        result = safe_read_json(tmp_path / "nonexistent.json")
+        assert result == {}
+
+    def test_ensure_dir(self, tmp_path):
+        from execution.utils.file_ops import ensure_dir
+        path = ensure_dir(tmp_path / "a" / "b" / "c")
+        assert path.exists()
+
+class TestP2StructLog:
+    """P2-E: structlog logging utility."""
+
+    def test_logging_module_imports(self):
+        from execution.utils.logging import configure_logging, get_logger
+        assert callable(configure_logging)
+        assert callable(get_logger)
+
+    def test_get_logger_returns_bound_logger(self):
+        from execution.utils.logging import get_logger
+        logger = get_logger("test")
+        assert logger is not None
+
+class TestP2PulseAggregator:
+    """P2-H: TF-IDF and VADER integration."""
+
+    def test_vader_sentiment_import(self):
+        """Test VADER graceful import."""
+        from execution.pulse_aggregator import analyze_sentiment
+        result = analyze_sentiment("This is great news!")
+        assert "compound" in result
+
+    def test_vader_handles_negation(self):
+        from execution.pulse_aggregator import analyze_sentiment
+        pos = analyze_sentiment("This is absolutely wonderful and amazing")
+        neg = analyze_sentiment("This is terrible and awful")
+        assert neg["compound"] < pos["compound"]
+
+class TestP2PromptCaching:
+    """P2-D: Prompt caching infrastructure."""
+
+    def test_prepare_cached_messages_exists(self):
+        from execution.agents.base_agent import BaseAgent
+        assert hasattr(BaseAgent, '_prepare_cached_messages')
+
+    def test_call_llm_accepts_system_prompt(self):
+        import inspect
+        from execution.agents.base_agent import BaseAgent
+        sig = inspect.signature(BaseAgent.call_llm)
+        assert 'system_prompt' in sig.parameters
+
+class TestP2AsyncOpinionSpectrum:
+    """P2-C: Async opinion spectrum."""
+
+    def test_async_methods_exist(self):
+        import asyncio
+        from execution.agents.original_thought_agent import OriginalThoughtAgent
+        assert hasattr(OriginalThoughtAgent, '_generate_angle_async')
+        assert hasattr(OriginalThoughtAgent, '_generate_spectrum_sequential')
+
+class TestP2GeminiJsonMode:
+    """P2-B: Native Gemini JSON mode."""
+
+    def test_gemini_researcher_imports(self):
+        from execution.agents.gemini_researcher import GeminiResearchAgent
+        assert GeminiResearchAgent is not None
+
+class TestP2ReviewDecisions:
+    """P2-J: Dashboard review persistence."""
+
+    def test_review_functions_exist(self):
+        from execution.sources.database import (
+            save_review_decision, get_review_history, get_decision_stats
+        )
+        assert callable(save_review_decision)
+        assert callable(get_review_history)
+        assert callable(get_decision_stats)
+
+class TestP2DraftConsolidation:
+    """P2-I: Draft generator deprecation."""
+
+    def test_generate_drafts_deprecated(self):
+        import warnings
+        import importlib
+        import sys
+        # Remove cached module so re-import triggers warning
+        mod_name = "execution.generate_drafts"
+        if mod_name in sys.modules:
+            del sys.modules[mod_name]
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            importlib.import_module(mod_name)
+            assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

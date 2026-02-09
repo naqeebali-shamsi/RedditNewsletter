@@ -12,7 +12,7 @@ Reference: PRD Section 7.2 - State Schema Definition
 
 from typing import List, Dict, Optional, Any, Iterator, Tuple
 from enum import Enum
-from datetime import datetime
+from execution.utils.datetime_utils import utc_now, utc_iso
 
 from pydantic import BaseModel, Field
 
@@ -190,8 +190,8 @@ class QualityGateInput(BaseModel):
             draft=self.content,
             source_type=self.source_type,
             platform=self.platform,
-            created_at=datetime.now().isoformat(),
-            updated_at=datetime.now().isoformat(),
+            created_at=utc_iso(),
+            updated_at=utc_iso(),
             word_count=len(self.content.split()),
             research_facts=self.research_facts,
             verification_status="pending",
@@ -245,8 +245,8 @@ def create_initial_state(
 
         # Metadata
         article_id=str(uuid.uuid4())[:8],
-        created_at=datetime.now().isoformat(),
-        updated_at=datetime.now().isoformat(),
+        created_at=utc_iso(),
+        updated_at=utc_iso(),
         platform=platform,
         word_count=0,
 
@@ -309,7 +309,7 @@ def update_verification_state(state: ArticleState, verification_report: Dict) ->
     state["false_claim_count"] = verification_report.get("false_count", 0)
     state["verification_passed"] = verification_report.get("passes_quality_gate", False)
     state["verification_status"] = "passed" if state["verification_passed"] else "failed"
-    state["updated_at"] = datetime.now().isoformat()
+    state["updated_at"] = utc_iso()
 
     # If verification failed, flag for human review
     if not state["verification_passed"]:

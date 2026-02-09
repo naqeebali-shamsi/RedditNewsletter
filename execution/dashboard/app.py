@@ -18,6 +18,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime
+from execution.utils.datetime_utils import utc_iso
 from typing import Dict, List, Optional
 import pandas as pd
 
@@ -28,6 +29,12 @@ from execution.config import config, OUTPUT_DIR
 from execution.provenance import (
     ContentProvenance, ProvenanceTracker,
     generate_inline_disclosure, generate_content_metadata
+)
+from execution.sources.database import (
+    save_review_decision as db_save_review_decision,
+    get_review_decision_for_article,
+    get_review_history,
+    get_decision_stats,
 )
 
 REVIEW_STATE_DIR = OUTPUT_DIR / "review_state"
@@ -101,7 +108,11 @@ def init_session_state():
 
 
 def load_review_queue() -> List[Dict]:
-    """Load pending reviews from output directory."""
+    """Load pending reviews from output directory.
+
+    Checks the SQLAlchemy database first for persisted review decisions,
+    falling back to legacy JSON sidecar files if no DB record exists.
+    """
     queue = []
     output_dir = OUTPUT_DIR
 
@@ -131,12 +142,19 @@ def load_review_queue() -> List[Dict]:
                 item["quality_score"] = item["provenance"].get("quality_score", 0)
                 item["title"] = item["provenance"].get("topic", item["title"])
 
-        # Restore persisted review decision if available
-        review_file = REVIEW_STATE_DIR / f"{article_id}_review.json"
-        if review_file.exists():
-            with open(review_file, 'r') as f:
-                review_data = json.load(f)
-                item["status"] = review_data["current"]["status"]
+        # Check DB first for persisted review decision
+        db_decision = get_review_decision_for_article(article_id)
+        if db_decision:
+            item["status"] = db_decision["decision"]
+        else:
+            # Fallback: legacy JSON sidecar files
+            review_file = REVIEW_STATE_DIR / f"{article_id}_review.json"
+            if review_file.exists():
+                with open(review_file, 'r') as f:
+                    review_data = json.load(f)
+                    item["status"] = review_data["current"]["status"]
+                # Migrate legacy JSON decision to DB
+                _migrate_json_decision(article_id, review_file, item)
 
         queue.append(item)
 
@@ -145,10 +163,27 @@ def load_review_queue() -> List[Dict]:
     return queue
 
 
+def _migrate_json_decision(article_id: str, json_path: Path, item: Dict):
+    """Migrate a legacy JSON review decision to the database."""
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        current = data.get("current", {})
+        db_save_review_decision(
+            article_id=article_id,
+            decision=current.get("status", "pending_review"),
+            notes=current.get("notes", ""),
+            topic=item.get("title", ""),
+            quality_score=item.get("quality_score", 0.0),
+        )
+    except Exception:
+        pass  # Non-critical: migration is best-effort
+
+
 def log_audit_action(action: str, article_id: str, details: Dict = None):
     """Log an audit action."""
     entry = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": utc_iso(),
         "action": action,
         "article_id": article_id,
         "reviewer": st.session_state.reviewer_name or "Anonymous",
@@ -158,24 +193,27 @@ def log_audit_action(action: str, article_id: str, details: Dict = None):
 
 
 def save_review_decision(article_id: str, status: str, reviewer: str, notes: str):
-    """Persist review decision to JSON sidecar file."""
-    REVIEW_STATE_DIR.mkdir(parents=True, exist_ok=True)
-    filepath = REVIEW_STATE_DIR / f"{article_id}_review.json"
-    decision = {
-        "article_id": article_id,
-        "status": status,
-        "reviewer": reviewer,
-        "notes": notes,
-        "timestamp": datetime.now().isoformat(),
-    }
-    history = []
-    if filepath.exists():
-        with open(filepath, 'r') as f:
-            existing = json.load(f)
-            history = existing.get("history", [])
-    history.append(decision)
-    with open(filepath, 'w') as f:
-        json.dump({"current": decision, "history": history}, f, indent=2)
+    """Persist review decision to the SQLAlchemy database.
+
+    Each call inserts a new row so full decision history is preserved.
+    The most-recent row for a given article_id is treated as current.
+    """
+    # Resolve topic / quality from current session queue
+    topic = ""
+    quality_score = 0.0
+    for item in st.session_state.get("review_queue", []):
+        if item["id"] == article_id:
+            topic = item.get("title", "")
+            quality_score = item.get("quality_score", 0.0)
+            break
+
+    db_save_review_decision(
+        article_id=article_id,
+        decision=status,
+        notes=f"[{reviewer}] {notes}" if reviewer else notes,
+        topic=topic,
+        quality_score=quality_score,
+    )
 
 
 def save_audit_log(entries: list):

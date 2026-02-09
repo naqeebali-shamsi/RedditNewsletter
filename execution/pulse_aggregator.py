@@ -22,6 +22,22 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+# Optional: scikit-learn for TF-IDF keyword extraction
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    _HAS_SKLEARN = True
+except ImportError:
+    _HAS_SKLEARN = False
+
+# Optional: VADER for rule-based sentiment analysis
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    _vader = SentimentIntensityAnalyzer()
+    _HAS_VADER = True
+except ImportError:
+    _vader = None
+    _HAS_VADER = False
+
 # Database path
 DB_PATH = Path(__file__).parent.parent / "reddit_content.db"
 
@@ -95,9 +111,11 @@ def fetch_recent_items(conn: sqlite3.Connection, since_timestamp: int) -> List[D
     return items
 
 
-def extract_keywords(text: str) -> List[str]:
+def _extract_keywords_simple(text: str) -> List[str]:
     """
     Extract meaningful keywords from text by tokenizing and filtering stopwords.
+
+    Simple fallback used when scikit-learn is not installed.
 
     Args:
         text: Input text to extract keywords from
@@ -113,6 +131,58 @@ def extract_keywords(text: str) -> List[str]:
 
     # Filter stopwords and short words
     return [w for w in words if w not in STOPWORDS and len(w) >= MIN_WORD_LENGTH]
+
+
+def extract_keywords(text: str) -> List[str]:
+    """Extract keywords from text. Delegates to _extract_keywords_simple."""
+    return _extract_keywords_simple(text)
+
+
+def extract_keywords_tfidf(documents: List[str], max_features: int = 200) -> List[Tuple[str, float]]:
+    """Extract keywords using TF-IDF vectorization.
+
+    Returns list of (keyword, tfidf_score) sorted by score descending.
+    Falls back to simple frequency counting if sklearn not installed.
+
+    Args:
+        documents: List of text documents to analyze
+        max_features: Maximum number of features for TF-IDF
+
+    Returns:
+        List of (keyword, score) tuples sorted by score descending
+    """
+    if not _HAS_SKLEARN or len(documents) < 2:
+        # Fallback: frequency-based scoring from simple extraction
+        all_words: Counter = Counter()
+        for doc in documents:
+            all_words.update(_extract_keywords_simple(doc))
+        total = max(sum(all_words.values()), 1)
+        scored = [(word, count / total) for word, count in all_words.most_common(max_features)]
+        return scored
+
+    try:
+        vectorizer = TfidfVectorizer(
+            max_features=max_features,
+            stop_words='english',
+            ngram_range=(1, 2),
+            min_df=2,
+            max_df=0.95,
+        )
+        tfidf_matrix = vectorizer.fit_transform(documents)
+        feature_names = vectorizer.get_feature_names_out()
+
+        # Get mean TF-IDF score across all documents for each feature
+        mean_scores = tfidf_matrix.mean(axis=0).A1
+        scored = list(zip(feature_names, mean_scores))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored
+    except ValueError:
+        # Empty vocabulary (all terms filtered by min_df/max_df on small corpora)
+        all_words: Counter = Counter()
+        for doc in documents:
+            all_words.update(_extract_keywords_simple(doc))
+        total = max(sum(all_words.values()), 1)
+        return [(word, count / total) for word, count in all_words.most_common(max_features)]
 
 
 def extract_bigrams(words: List[str]) -> List[str]:
@@ -262,18 +332,36 @@ def cluster_topics(
     return topics[:20]  # Top 20 topics
 
 
-def compute_sentiment_summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
-    """
-    Basic sentiment classification by keyword matching.
+def analyze_sentiment(text: str) -> Dict[str, float]:
+    """Analyze sentiment using VADER (handles negation, intensifiers, slang).
 
-    Counts positive, negative, and neutral items based on title/content keywords.
-    This is intentionally simple -- production would use a proper NLP model.
+    Returns dict with 'compound' (-1 to 1), 'pos', 'neg', 'neu' scores.
+    Falls back to simple keyword matching if VADER not installed.
 
     Args:
-        items: List of content item dicts
+        text: Text to analyze
 
     Returns:
-        Dict with positive, negative, neutral counts
+        Dict with sentiment scores
+    """
+    if not text:
+        return {"compound": 0.0, "pos": 0.0, "neg": 0.0, "neu": 1.0}
+    if _HAS_VADER and _vader:
+        return _vader.polarity_scores(text)
+    return _analyze_sentiment_simple(text)
+
+
+def _analyze_sentiment_simple(text: str) -> Dict[str, float]:
+    """Simple keyword-based sentiment fallback.
+
+    Returns VADER-compatible dict with compound, pos, neg, neu scores
+    so callers don't need to branch on which implementation ran.
+
+    Args:
+        text: Text to analyze
+
+    Returns:
+        Dict with sentiment scores (compound, pos, neg, neu)
     """
     positive_words = {
         "great", "awesome", "excellent", "amazing", "good", "best", "love",
@@ -283,21 +371,47 @@ def compute_sentiment_summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
     negative_words = {
         "bad", "terrible", "broken", "bug", "issue", "problem", "error",
         "fail", "crash", "slow", "vulnerability", "breach", "hack", "risk",
-        "deprecated", "removed", "broken", "worst", "warning", "critical",
+        "deprecated", "removed", "worst", "warning", "critical",
     }
 
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    pos_count = len(words & positive_words)
+    neg_count = len(words & negative_words)
+    total = max(pos_count + neg_count, 1)
+
+    pos_score = pos_count / total if total > 0 else 0.0
+    neg_score = neg_count / total if total > 0 else 0.0
+    neu_score = 1.0 - pos_score - neg_score
+
+    # Approximate a compound score in [-1, 1]
+    compound = (pos_count - neg_count) / total if total > 0 else 0.0
+
+    return {"compound": compound, "pos": pos_score, "neg": neg_score, "neu": max(neu_score, 0.0)}
+
+
+def compute_sentiment_summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
+    """
+    Classify items as positive, negative, or neutral using VADER sentiment.
+
+    Uses VADER's compound score when available, falls back to simple keyword
+    matching otherwise. Thresholds: compound >= 0.05 positive, <= -0.05 negative.
+
+    Args:
+        items: List of content item dicts
+
+    Returns:
+        Dict with positive, negative, neutral counts
+    """
     counts = {"positive": 0, "negative": 0, "neutral": 0}
 
     for item in items:
-        text = f"{item.get('title', '')} {item.get('content', '')}".lower()
-        words = set(re.findall(r"[a-z]+", text))
+        text = f"{item.get('title', '')} {item.get('content', '')}"
+        scores = analyze_sentiment(text)
+        compound = scores.get("compound", 0.0)
 
-        pos_count = len(words & positive_words)
-        neg_count = len(words & negative_words)
-
-        if pos_count > neg_count:
+        if compound >= 0.05:
             counts["positive"] += 1
-        elif neg_count > pos_count:
+        elif compound <= -0.05:
             counts["negative"] += 1
         else:
             counts["neutral"] += 1

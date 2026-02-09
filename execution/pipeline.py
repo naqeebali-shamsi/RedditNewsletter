@@ -24,7 +24,7 @@ import sys
 import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Literal, Annotated
-from datetime import datetime
+from execution.utils.datetime_utils import utc_iso
 from functools import wraps
 import operator
 
@@ -196,7 +196,7 @@ def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "research_sources": research_sources,
         "current_phase": PHASE_RESEARCH,
         "next_action": PHASE_GENERATE,
-        "updated_at": datetime.now().isoformat()
+        "updated_at": utc_iso()
     }
 
 
@@ -266,7 +266,7 @@ Write the article now. Output ONLY the article content."""
             "word_count": len(draft.split()),
             "current_phase": PHASE_GENERATE,
             "next_action": PHASE_VERIFY,
-            "updated_at": datetime.now().isoformat()
+            "updated_at": utc_iso()
         }
 
     except Exception as e:
@@ -402,7 +402,7 @@ def review_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "reviewer_feedback": state.get("reviewer_feedback", []) + [verdict.to_dict()],
             "current_phase": PHASE_REVIEW,
             "next_action": next_action,
-            "updated_at": datetime.now().isoformat()
+            "updated_at": utc_iso()
         }
 
     except Exception as e:
@@ -498,7 +498,7 @@ IMPORTANT:
             "word_count": len(revised.split()),
             "current_phase": PHASE_REVISE,
             "next_action": PHASE_VERIFY,  # Re-verify after revision
-            "updated_at": datetime.now().isoformat()
+            "updated_at": utc_iso()
         }
 
     except Exception as e:
@@ -544,7 +544,7 @@ def approve_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "approval_reason": f"Score {quality_score}/10 with all quality checks passed",
             "current_phase": PHASE_DONE,
             "next_action": "complete",
-            "updated_at": datetime.now().isoformat()
+            "updated_at": utc_iso()
         }
 
     # Human review required
@@ -569,7 +569,7 @@ def approve_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "review_reasons": review_reasons,
         "current_phase": PHASE_APPROVE,
         "next_action": "await_human_decision",
-        "updated_at": datetime.now().isoformat()
+        "updated_at": utc_iso()
     }
 
 
@@ -593,7 +593,7 @@ def style_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "style_score": None,
             "style_passed": True,
             "current_phase": PHASE_STYLE_CHECK,
-            "updated_at": datetime.now().isoformat()
+            "updated_at": utc_iso()
         }
 
     try:
@@ -620,7 +620,7 @@ def style_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "style_result": result.to_dict(),
             "style_passed": passed,
             "current_phase": PHASE_STYLE_CHECK,
-            "updated_at": datetime.now().isoformat()
+            "updated_at": utc_iso()
         }
     except ImportError:
         print("  StyleEnforcerAgent not available — flagging for review")
@@ -629,7 +629,7 @@ def style_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "style_passed": False,
             "style_error": "StyleEnforcerAgent unavailable (missing dependency)",
             "current_phase": PHASE_STYLE_CHECK,
-            "updated_at": datetime.now().isoformat()
+            "updated_at": utc_iso()
         }
     except Exception as e:
         print(f"  Style check error: {e}")
@@ -638,7 +638,7 @@ def style_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
             "style_passed": False,
             "style_error": f"Style check failed: {e}",
             "current_phase": PHASE_STYLE_CHECK,
-            "updated_at": datetime.now().isoformat()
+            "updated_at": utc_iso()
         }
 
 
@@ -741,7 +741,7 @@ def escalate_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "critical_failures": critical,
         "current_phase": PHASE_ESCALATE,
         "next_action": "await_human_decision",
-        "updated_at": datetime.now().isoformat()
+        "updated_at": utc_iso()
     }
 
 

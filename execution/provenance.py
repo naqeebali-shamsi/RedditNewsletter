@@ -16,7 +16,7 @@ Standards Reference:
 import json
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from execution.utils.datetime_utils import utc_now, utc_iso
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
@@ -40,7 +40,7 @@ class ContentProvenance(BaseModel):
     content_hash: str  # SHA-256 of final content
 
     # Creation metadata
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: utc_iso())
     created_by: str = "GhostWriter AI Pipeline"
     version: str = "3.0"
 
@@ -76,7 +76,7 @@ class ContentProvenance(BaseModel):
         self.actions.append(ProvenanceAction(
             action_type=action_type,
             agent=agent,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=utc_iso(),
             details=details or {},
             model=model
         ))
@@ -127,7 +127,7 @@ class ProvenanceTracker:
         self._provenance = ContentProvenance(
             content_id=generate_content_id(),
             content_hash="",  # Set on finalize
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=utc_iso(),
             source_type=source_type,
             source_url=source_url,
             source_title=source_title,
@@ -242,7 +242,7 @@ class ProvenanceTracker:
 
         self._provenance.human_reviewed = True
         self._provenance.human_reviewer = reviewer
-        self._provenance.human_review_timestamp = datetime.now(timezone.utc).isoformat()
+        self._provenance.human_review_timestamp = utc_iso()
 
         self._provenance.add_action(
             "human_reviewed",
@@ -497,15 +497,15 @@ Generated: {date_str}
 
 def export_provenance_json(provenance: ContentProvenance, filepath: str):
     """Export full provenance record to JSON file."""
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(provenance.to_dict(), f, indent=2)
+    from execution.utils.file_ops import atomic_write_json
+    atomic_write_json(filepath, provenance.to_dict())
 
 
 def export_c2pa_manifest(provenance: ContentProvenance, filepath: str):
     """Export C2PA manifest to JSON file."""
+    from execution.utils.file_ops import atomic_write_json
     manifest = generate_c2pa_manifest(provenance)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(manifest, f, indent=2)
+    atomic_write_json(filepath, manifest)
 
 
 def export_schema_org(
@@ -515,9 +515,9 @@ def export_schema_org(
     description: str
 ):
     """Export Schema.org JSON-LD to file."""
+    from execution.utils.file_ops import atomic_write_json
     jsonld = generate_schema_org_jsonld(provenance, title, description)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(jsonld, f, indent=2)
+    atomic_write_json(filepath, jsonld)
 
 
 # ============================================================================

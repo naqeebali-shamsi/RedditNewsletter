@@ -20,7 +20,9 @@ from typing import Any, Dict, List, Optional
 import sqlalchemy as sa
 from sqlalchemy import (
     Column,
+    Float,
     Integer,
+    String,
     Text,
     Boolean,
     MetaData,
@@ -94,6 +96,21 @@ newsletter_senders = Table(
 )
 
 Index("idx_newsletter_active", newsletter_senders.c.is_active)
+
+review_decisions = Table(
+    "review_decisions",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("article_id", String(50), nullable=False),
+    Column("decision", String(20), nullable=False),  # approve/reject/edit
+    Column("reviewer_notes", Text, default=""),
+    Column("decided_at", String(50), nullable=False),
+    Column("article_topic", String(500), default=""),
+    Column("quality_score", Float, default=0.0),
+)
+
+Index("idx_review_article", review_decisions.c.article_id)
+Index("idx_review_decided", review_decisions.c.decided_at)
 
 
 # ---------------------------------------------------------------------------
@@ -315,3 +332,85 @@ def upsert_newsletter_sender(
         return True
     except sa.exc.SQLAlchemyError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Review Decisions
+# ---------------------------------------------------------------------------
+
+def save_review_decision(
+    article_id: str,
+    decision: str,
+    notes: str = "",
+    topic: str = "",
+    quality_score: float = 0.0,
+) -> None:
+    """Save a review decision to the database."""
+    from datetime import datetime, timezone
+
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            review_decisions.insert().values(
+                article_id=article_id,
+                decision=decision,
+                reviewer_notes=notes,
+                decided_at=datetime.now(timezone.utc).isoformat(),
+                article_topic=topic,
+                quality_score=quality_score,
+            )
+        )
+
+
+def get_review_history(limit: int = 50) -> List[Dict]:
+    """Get recent review decisions."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(
+            review_decisions.select()
+            .order_by(review_decisions.c.decided_at.desc())
+            .limit(limit)
+        )
+        return [dict(row._mapping) for row in result]
+
+
+def get_review_decision_for_article(article_id: str) -> Optional[Dict]:
+    """Get the most recent review decision for a specific article."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(
+            review_decisions.select()
+            .where(review_decisions.c.article_id == article_id)
+            .order_by(review_decisions.c.decided_at.desc())
+            .limit(1)
+        )
+        row = result.fetchone()
+        if row:
+            return dict(row._mapping)
+    return None
+
+
+def get_decision_stats() -> Dict:
+    """Get aggregate stats on review decisions."""
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(review_decisions.select())
+        rows = [dict(r._mapping) for r in result]
+
+    total = len(rows)
+    if total == 0:
+        return {"total": 0, "approved": 0, "rejected": 0, "edited": 0}
+
+    approved = sum(1 for r in rows if r["decision"] == "approve")
+    rejected = sum(1 for r in rows if r["decision"] == "reject")
+    edited = sum(1 for r in rows if r["decision"] == "edit")
+    avg_score = sum(r.get("quality_score", 0) for r in rows) / total
+
+    return {
+        "total": total,
+        "approved": approved,
+        "rejected": rejected,
+        "edited": edited,
+        "approval_rate": approved / total if total else 0,
+        "avg_quality_score": avg_score,
+    }

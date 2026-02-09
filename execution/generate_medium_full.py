@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""
-Orchestrator for the Medium Article Generation Pipeline.
-Coordinates the multi-agent workflow: Editor -> Critic -> Writer -> Visuals.
+"""Full article generation pipeline (canonical).
+
+Includes research, drafting, fact verification, specialist refinement,
+quality gate, and visual generation. This is the primary production pipeline
+for generating publication-ready Medium articles.
+
+Multi-agent workflow: Research (Gemini/Perplexity) -> Editor -> Critic ->
+Writer -> Verification -> Specialist Refinement -> Visuals -> Compilation.
+
+For simpler quality-gated drafts without research/specialists, use
+generate_drafts_v2.py instead.
 """
 
 import sys
 import os
 import argparse
 import datetime
+from execution.utils.datetime_utils import utc_now
 import json
 from pathlib import Path
 
@@ -472,7 +481,7 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
     lines = draft.split('\n')
     title = lines[0] if lines else "Untitled"
     
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = utc_now().strftime("%Y%m%d_%H%M%S")
     filename = f"medium_full_{timestamp}.md"
     filepath = OUTPUT_DIR / filename
 
@@ -502,8 +511,8 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
 {json.dumps(visual_plan, indent=2) if visual_plan else "None"}
 """
     
-    with open(filepath, "w", encoding='utf-8') as f:
-        f.write(final_content)
+    from execution.utils.file_ops import atomic_write
+    atomic_write(filepath, final_content)
 
     print(f"   📂 Output: {filepath}")
 

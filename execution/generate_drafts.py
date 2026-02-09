@@ -1,27 +1,29 @@
 #!/usr/bin/env python3
+"""DEPRECATED: Use generate_medium_full.py for full pipeline or generate_drafts_v2.py for simple drafts.
+
+This module is the original template-based draft generator. It does NOT use LLM agents
+and produces only hardcoded template output. All functionality here is superseded by:
+
+- generate_drafts_v2.py: Agent-based drafts with quality gate (simple mode)
+- generate_medium_full.py: Full article pipeline with research, verification, and visuals
+
+This module is retained for backward compatibility. No new features should be added here.
+Scheduled for removal in next major version.
 """
-Generate LinkedIn/Medium drafts from Signal posts.
 
-This script:
-1. Fetches posts marked as "Signal" from the database
-2. Uses an LLM to generate content drafts based on market strategy themes
-3. Saves drafts to the database and exports to .tmp/drafts/
-
-Supports both legacy (posts/evaluations) and unified (content_items/evaluations_v2) tables.
-
-Usage:
-    python generate_drafts.py --platform linkedin --limit 10
-    python generate_drafts.py --platform medium --limit 5
-    python generate_drafts.py --unified                      # Use unified content_items table
-    python generate_drafts.py --source gmail                 # Filter by source type
-"""
+import warnings
+warnings.warn(
+    "generate_drafts is deprecated. Use generate_medium_full or generate_drafts_v2.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import json
 import sqlite3
 import argparse
 import time
 from pathlib import Path
-from datetime import datetime
+from execution.utils.datetime_utils import utc_now
 from typing import Any, Dict, List, Optional
 
 # Paths
@@ -211,7 +213,7 @@ def export_draft_to_file(draft_id, platform, draft_content):
     """Export draft to .tmp/drafts/ directory."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = utc_now().strftime("%Y%m%d_%H%M%S")
     filename = f"{platform}_{timestamp}_{draft_id}.txt"
     filepath = OUTPUT_DIR / filename
     

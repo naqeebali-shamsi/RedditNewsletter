@@ -25,6 +25,10 @@ from tenacity import (
     retry_if_exception_type,
 )
 
+from execution.utils.logging import get_logger
+
+logger = get_logger("fetch")
+
 # Import the source system
 from sources import (
     ContentItem,
@@ -155,7 +159,11 @@ def insert_items(items: List[ContentItem]) -> Dict[str, int]:
 
 
 def log_audit_event(event_type: str, source_type: Optional[str], details: Dict[str, Any]):
-    """Log an audit event."""
+    """Log an audit event to SQLite.
+
+    DEPRECATED: SQLite audit logging is retained for backwards compatibility.
+    Prefer structlog via ``get_logger("fetch")`` for new code.
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -304,7 +312,16 @@ def fetch_all_sources(
             print(f"  [+] Inserted {db_result['inserted']} new items")
             print(f"  [ ] Skipped {db_result['skipped']} duplicates")
 
-            # Log audit event
+            # Structured log (primary)
+            logger.info(
+                "fetch_complete",
+                source_type=source_type.value,
+                items_fetched=fetch_result.items_fetched,
+                items_inserted=db_result["inserted"],
+                items_skipped=db_result["skipped"],
+            )
+
+            # SQLite audit log (deprecated, kept for backwards compatibility)
             log_audit_event(
                 "fetch",
                 source_type.value,
@@ -328,6 +345,7 @@ def fetch_all_sources(
         except Exception as e:
             error_msg = f"{source_type.value}: {str(e)}"
             results["errors"].append(error_msg)
+            logger.error("fetch_failed", source_type=source_type.value, error=str(e))
             print(f"  [!] Error: {e}")
 
     return results

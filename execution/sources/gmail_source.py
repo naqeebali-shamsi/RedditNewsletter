@@ -24,7 +24,8 @@ import base64
 import os
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from execution.utils.datetime_utils import utc_now
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -261,9 +262,9 @@ class GmailSource(ContentSource):
 
         # Calculate time filter
         if since is None:
-            since_date = datetime.now() - timedelta(hours=self.hours_lookback)
+            since_date = utc_now() - timedelta(hours=self.hours_lookback)
         else:
-            since_date = datetime.fromtimestamp(since)
+            since_date = datetime.fromtimestamp(since, tz=timezone.utc)
 
         # Build query
         query = self._build_query(since_date)

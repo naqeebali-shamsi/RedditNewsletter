@@ -73,8 +73,6 @@ OUTPUT: Return JSON with:
 """
 
     def __init__(self, model: str = None):
-        if model is None:
-            model = config.models.GEMINI_RESEARCH_MODEL
         """
         Initialize the Gemini research agent.
 
@@ -82,6 +80,8 @@ OUTPUT: Return JSON with:
             model: Gemini model to use (must support google_search tool).
                    Defaults to config.models.GEMINI_RESEARCH_MODEL.
         """
+        if model is None:
+            model = config.models.GEMINI_RESEARCH_MODEL
         # Initialize Gemini client
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -158,7 +158,8 @@ Be thorough. Search for EVERY specific claim."""
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     tools=[self.grounding_tool],
-                    temperature=0.1  # Low temp for factual accuracy
+                    temperature=0.1,  # Low temp for factual accuracy
+                    response_mime_type="application/json",
                 )
             )
 
@@ -166,11 +167,13 @@ Be thorough. Search for EVERY specific claim."""
             result = self._parse_research_response(response)
 
             # Add grounding metadata if available
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'grounding_metadata'):
+            candidates = getattr(response, 'candidates', None) or []
+            if candidates:
+                candidate = candidates[0]
+                grounding_metadata = getattr(candidate, 'grounding_metadata', None)
+                if grounding_metadata is not None:
                     result["grounding_metadata"] = self._extract_grounding_metadata(
-                        candidate.grounding_metadata
+                        grounding_metadata
                     )
 
             # Generate writer constraints
@@ -240,7 +243,8 @@ Be ruthless. If you can't verify it, flag it."""
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     tools=[self.grounding_tool],
-                    temperature=0.1
+                    temperature=0.1,
+                    response_mime_type="application/json",
                 )
             )
 
@@ -266,7 +270,13 @@ Be ruthless. If you can't verify it, flag it."""
 
     def _parse_research_response(self, response) -> Dict:
         """Parse the research response from Gemini."""
-        text = response.text if hasattr(response, 'text') else str(response)
+        text = getattr(response, 'text', None) or str(response)
+        # Try native JSON mode first (response_mime_type="application/json")
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Fall back to extraction from LLM prose
         result = extract_json_from_llm(text)
         if result is not None:
             return result
@@ -280,7 +290,13 @@ Be ruthless. If you can't verify it, flag it."""
 
     def _parse_verification_response(self, response) -> Dict:
         """Parse the verification response from Gemini."""
-        text = response.text if hasattr(response, 'text') else str(response)
+        text = getattr(response, 'text', None) or str(response)
+        # Try native JSON mode first (response_mime_type="application/json")
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Fall back to extraction from LLM prose
         result = extract_json_from_llm(text)
         if result is not None:
             return result
@@ -301,19 +317,18 @@ Be ruthless. If you can't verify it, flag it."""
             "sources": []
         }
 
-        try:
-            if hasattr(metadata, 'web_search_queries'):
-                result["search_queries"] = list(metadata.web_search_queries)
+        queries = getattr(metadata, 'web_search_queries', None)
+        if queries:
+            result["search_queries"] = list(queries)
 
-            if hasattr(metadata, 'grounding_chunks'):
-                for chunk in metadata.grounding_chunks:
-                    if hasattr(chunk, 'web'):
-                        result["sources"].append({
-                            "uri": chunk.web.uri if hasattr(chunk.web, 'uri') else None,
-                            "title": chunk.web.title if hasattr(chunk.web, 'title') else None
-                        })
-        except:
-            pass
+        chunks = getattr(metadata, 'grounding_chunks', None) or []
+        for chunk in chunks:
+            web = getattr(chunk, 'web', None)
+            if web is not None:
+                result["sources"].append({
+                    "uri": getattr(web, 'uri', None),
+                    "title": getattr(web, 'title', None),
+                })
 
         return result
 

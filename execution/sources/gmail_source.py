@@ -21,13 +21,11 @@ OAuth Setup Required:
 """
 
 import base64
-import json
 import os
 import re
-import sqlite3
 import time
 from datetime import datetime, timedelta
-from email.utils import parsedate_to_datetime
+from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -56,19 +54,17 @@ from .base_source import (
     TrustTier,
 )
 from . import register_source
+from .database import (
+    get_sender_trust_tier as _db_get_sender_trust_tier,
+    upsert_newsletter_sender,
+)
 
-# Database and credential paths
-DB_PATH = Path(__file__).parent.parent.parent / "reddit_content.db"
+# Credential paths
 DEFAULT_CREDENTIALS_PATH = Path(__file__).parent.parent.parent / "credentials_gmail.json"
 DEFAULT_TOKEN_PATH = Path(__file__).parent.parent.parent / "token_gmail.json"
 
 # OAuth scope - minimal privilege, read-only
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-
-
-def get_db_connection():
-    """Get database connection."""
-    return sqlite3.connect(DB_PATH)
 
 
 def get_sender_trust_tier(email: str) -> TrustTier:
@@ -81,23 +77,13 @@ def get_sender_trust_tier(email: str) -> TrustTier:
     Returns:
         TrustTier enum value (default: C if not found)
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(
-            "SELECT trust_tier FROM newsletter_senders WHERE email = ? AND is_active = 1",
-            (email.lower(),)
-        )
-        row = cursor.fetchone()
-        if row:
-            return TrustTier(row[0])
-    except (sqlite3.OperationalError, ValueError):
-        pass
-    finally:
-        conn.close()
-
-    return TrustTier.C  # Default untrusted
+    tier_value = _db_get_sender_trust_tier(email)
+    if tier_value:
+        try:
+            return TrustTier(tier_value)
+        except ValueError:
+            pass
+    return TrustTier.C
 
 
 def add_newsletter_sender(
@@ -112,27 +98,12 @@ def add_newsletter_sender(
     Returns:
         True if added/updated successfully
     """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(
-            """
-            INSERT INTO newsletter_senders (email, display_name, trust_tier, is_active, added_at, notes)
-            VALUES (?, ?, ?, 1, ?, ?)
-            ON CONFLICT(email) DO UPDATE SET
-                display_name = COALESCE(excluded.display_name, display_name),
-                trust_tier = excluded.trust_tier,
-                notes = COALESCE(excluded.notes, notes)
-            """,
-            (email.lower(), display_name, trust_tier.value, int(time.time()), notes)
-        )
-        conn.commit()
-        return True
-    except sqlite3.Error:
-        return False
-    finally:
-        conn.close()
+    return upsert_newsletter_sender(
+        email=email,
+        display_name=display_name,
+        trust_tier=trust_tier.value,
+        notes=notes,
+    )
 
 
 @register_source(SourceType.GMAIL)
@@ -438,21 +409,14 @@ class GmailSource(ContentSource):
 
     def _parse_sender(self, from_header: str) -> Tuple[str, Optional[str]]:
         """
-        Parse sender from 'From' header.
+        Parse sender from 'From' header using RFC-compliant stdlib parser.
 
         Returns:
             Tuple of (email, display_name)
         """
-        # Pattern: "Display Name <email@example.com>" or "email@example.com"
-        match = re.match(r'^"?([^"<]*)"?\s*<?([^>]+@[^>]+)>?$', from_header.strip())
-        if match:
-            name = match.group(1).strip() or None
-            email = match.group(2).strip().lower()
-            return email, name
-
-        # Just email
-        email = from_header.strip().lower()
-        return email, None
+        display_name, email_addr = parseaddr(from_header)
+        email_addr = email_addr.lower() if email_addr else from_header.strip().lower()
+        return email_addr, display_name or None
 
     def _extract_body(self, message: Dict[str, Any]) -> str:
         """

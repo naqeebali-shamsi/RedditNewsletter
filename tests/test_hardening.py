@@ -931,5 +931,449 @@ class TestHyperlinkAnnotations:
         assert result.count("[Andrew Ng]") == 1
 
 
+# ============================================================================
+# 12. JSON Parser Utility
+# ============================================================================
+
+class TestJsonParserUtility:
+    """Tests for execution/utils/json_parser.py"""
+
+    def test_extracts_fenced_json(self):
+        """JSON inside ```json ... ``` fences should be extracted."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        text = 'Here is the result:\n```json\n{"key": "value"}\n```\nDone.'
+        result = extract_json_from_llm(text)
+        assert result == {"key": "value"}
+
+    def test_extracts_bare_fenced_json(self):
+        """JSON inside bare ``` ... ``` fences (no json tag) should be extracted."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        text = 'Output:\n```\n{"name": "test", "count": 42}\n```'
+        result = extract_json_from_llm(text)
+        assert result == {"name": "test", "count": 42}
+
+    def test_extracts_plain_json(self):
+        """A raw JSON string should be parsed directly."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        text = '{"status": "ok", "items": [1, 2, 3]}'
+        result = extract_json_from_llm(text)
+        assert result == {"status": "ok", "items": [1, 2, 3]}
+
+    def test_handles_nested_braces(self):
+        """Nested braces in values must not break extraction (the rfind bug)."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        text = '{"key": "value with {braces} inside", "other": 1}'
+        result = extract_json_from_llm(text)
+        assert result["key"] == "value with {braces} inside"
+        assert result["other"] == 1
+
+    def test_handles_json_array(self):
+        """JSON arrays should be extracted."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        text = '[{"item": 1}, {"item": 2}]'
+        result = extract_json_from_llm(text)
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["item"] == 1
+
+    def test_returns_default_on_garbage(self):
+        """Unparseable input should return the default value."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        assert extract_json_from_llm("this is not json at all") is None
+        assert extract_json_from_llm("no json here!", default={}) == {}
+        assert extract_json_from_llm("random garbage {{{", default=[]) == []
+
+    def test_handles_empty_input(self):
+        """Empty string and None should return default."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        assert extract_json_from_llm("") is None
+        assert extract_json_from_llm(None) is None
+        assert extract_json_from_llm("", default="fallback") == "fallback"
+
+    def test_handles_json_in_text(self):
+        """JSON embedded in surrounding prose should be extracted."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        text = 'Here is the result: {"key": "val"} as requested'
+        result = extract_json_from_llm(text)
+        assert result == {"key": "val"}
+
+    def test_deeply_nested_json(self):
+        """Deeply nested JSON structures should parse correctly."""
+        from execution.utils.json_parser import extract_json_from_llm
+
+        text = '{"a": {"b": {"c": [1, 2, {"d": true}]}}}'
+        result = extract_json_from_llm(text)
+        assert result["a"]["b"]["c"][2]["d"] is True
+
+
+# ============================================================================
+# 13. Research Templates
+# ============================================================================
+
+class TestResearchTemplates:
+    """Tests for execution/utils/research_templates.py"""
+
+    def test_generates_constraints_from_dicts(self):
+        """Dict items in fact_sheet should use 'fact' and 'source_url' keys."""
+        from execution.utils.research_templates import generate_writer_constraints
+
+        fact_sheet = {
+            "verified_facts": [
+                {"fact": "Python 3.12 is 15% faster", "source_url": "https://python.org"},
+            ],
+            "unverified_claims": [
+                {"claim": "10x improvement", "reason": "No source found"},
+            ],
+        }
+        result = generate_writer_constraints(fact_sheet)
+        assert "Python 3.12 is 15% faster" in result
+        assert "https://python.org" in result
+        assert "10x improvement" in result
+        assert "No source found" in result
+
+    def test_generates_constraints_from_strings(self):
+        """Plain string items should appear verbatim in output."""
+        from execution.utils.research_templates import generate_writer_constraints
+
+        fact_sheet = {
+            "verified_facts": ["Fact A", "Fact B"],
+            "general_knowledge": ["Common knowledge item"],
+        }
+        result = generate_writer_constraints(fact_sheet)
+        assert "Fact A" in result
+        assert "Fact B" in result
+        assert "Common knowledge item" in result
+
+    def test_fallback_constraints_constant(self):
+        """FALLBACK_CONSTRAINTS_TEXT should be a non-empty string."""
+        from execution.utils.research_templates import FALLBACK_CONSTRAINTS_TEXT
+
+        assert isinstance(FALLBACK_CONSTRAINTS_TEXT, str)
+        assert len(FALLBACK_CONSTRAINTS_TEXT.strip()) > 50
+
+    def test_provider_label(self):
+        """provider_label should appear in the header when provided."""
+        from execution.utils.research_templates import generate_writer_constraints
+
+        result = generate_writer_constraints(
+            {"verified_facts": ["test"]},
+            provider_label="via Perplexity",
+        )
+        assert "via Perplexity" in result
+
+    def test_provider_label_absent(self):
+        """No provider_label should produce clean header."""
+        from execution.utils.research_templates import generate_writer_constraints
+
+        result = generate_writer_constraints({"verified_facts": ["test"]})
+        assert "FACT SHEET - YOUR ONLY SOURCE OF TRUTH" in result
+        # No trailing parentheses when label is empty
+        assert "()" not in result
+
+    def test_generates_revision_instructions(self):
+        """Revision instructions should include all claim categories."""
+        from execution.utils.research_templates import generate_revision_instructions
+
+        verification = {
+            "false_claims": [{"claim": "X is 100x faster", "why_false": "Benchmark shows 2x"}],
+            "unverifiable_claims": ["Some vague claim"],
+            "suspicious_claims": [{"claim": "Suspicious stat", "red_flag": "No citation"}],
+            "verified_claims": ["Verified fact"],
+        }
+        result = generate_revision_instructions(verification)
+        assert "100x faster" in result
+        assert "Benchmark shows 2x" in result
+        assert "Some vague claim" in result
+        assert "Suspicious stat" in result
+        assert "Verified fact" in result
+        assert "REVISION REQUIRED" in result
+
+    def test_empty_verification_still_produces_header(self):
+        """Even with no claims the revision header should be present."""
+        from execution.utils.research_templates import generate_revision_instructions
+
+        result = generate_revision_instructions({})
+        assert "REVISION REQUIRED" in result
+
+
+# ============================================================================
+# 14. save_to_env (dotenv set_key)
+# ============================================================================
+
+class TestSaveToEnv:
+    """Tests for save_to_env using dotenv.set_key."""
+
+    def test_saves_new_key(self, tmp_path):
+        """A new key should be written to the .env file."""
+        from dotenv import set_key, dotenv_values
+
+        env_file = tmp_path / ".env"
+        env_file.touch()
+
+        set_key(str(env_file), "NEW_KEY", "new_value")
+
+        values = dotenv_values(str(env_file))
+        assert values["NEW_KEY"] == "new_value"
+
+    def test_updates_existing_key(self, tmp_path):
+        """An existing key should be updated in place."""
+        from dotenv import set_key, dotenv_values
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("MY_KEY=old_value\n")
+
+        set_key(str(env_file), "MY_KEY", "new_value")
+
+        values = dotenv_values(str(env_file))
+        assert values["MY_KEY"] == "new_value"
+
+    def test_preserves_comments(self, tmp_path):
+        """Comments in .env should be preserved after set_key."""
+        from dotenv import set_key
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("# This is a comment\nEXISTING=keep\n")
+
+        set_key(str(env_file), "NEW_KEY", "val")
+
+        content = env_file.read_text()
+        assert "# This is a comment" in content
+        assert "EXISTING=keep" in content
+
+    def test_preserves_other_keys(self, tmp_path):
+        """Other keys should not be affected when updating one key."""
+        from dotenv import set_key, dotenv_values
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("KEY_A=alpha\nKEY_B=beta\n")
+
+        set_key(str(env_file), "KEY_A", "updated")
+
+        values = dotenv_values(str(env_file))
+        assert values["KEY_A"] == "updated"
+        assert values["KEY_B"] == "beta"
+
+
+# ============================================================================
+# 15. Pybreaker-backed Circuit Breaker
+# ============================================================================
+
+class TestPybreakerCircuitBreaker:
+    """Tests for pybreaker-based circuit breaker (execution/sources/circuit_breaker.py)."""
+
+    def test_opens_after_threshold(self):
+        """Circuit should open after failure_threshold consecutive failures."""
+        from execution.sources.circuit_breaker import SourceCircuit
+
+        circuit = SourceCircuit(source_type="test", failure_threshold=2)
+        assert circuit.state == "closed"
+
+        circuit.record_failure()
+        assert circuit.state == "closed"
+
+        circuit.record_failure()
+        assert circuit.state == "open"
+
+    def test_resets_on_success(self):
+        """A success after failures should reset failure count and close circuit."""
+        from execution.sources.circuit_breaker import SourceCircuit
+
+        circuit = SourceCircuit(source_type="test", failure_threshold=3)
+        circuit.record_failure()
+        circuit.record_failure()
+        assert circuit.failure_count >= 2
+
+        circuit.record_success()
+        assert circuit.failure_count == 0
+        assert circuit.state == "closed"
+
+    def test_blocks_when_open(self):
+        """should_attempt() returns False when circuit is open within cooldown."""
+        from execution.sources.circuit_breaker import SourceCircuit
+
+        circuit = SourceCircuit(
+            source_type="test",
+            failure_threshold=1,
+            cooldown_seconds=600,
+        )
+        circuit.record_failure()
+        assert circuit.state == "open"
+        assert circuit.should_attempt() is False
+
+    def test_pybreaker_under_the_hood(self):
+        """The circuit should use a pybreaker.CircuitBreaker internally."""
+        import pybreaker
+        from execution.sources.circuit_breaker import SourceCircuit
+
+        circuit = SourceCircuit(source_type="test")
+        assert isinstance(circuit._breaker, pybreaker.CircuitBreaker)
+
+    def test_state_setter_compatibility(self):
+        """Direct state assignment should work for backward compatibility."""
+        from execution.sources.circuit_breaker import SourceCircuit
+
+        circuit = SourceCircuit(source_type="test")
+        circuit.state = "open"
+        assert circuit.state == "open"
+        circuit.state = "half-open"
+        assert circuit.state == "half-open"
+        circuit.state = "closed"
+        assert circuit.state == "closed"
+
+
+# ============================================================================
+# 16. SQLAlchemy Database Module
+# ============================================================================
+
+class TestSourceDatabase:
+    """Tests for execution/sources/database.py using an in-memory SQLite engine."""
+
+    def _get_test_engine(self, tmp_path):
+        """Create a fresh engine pointed at a temp database."""
+        import execution.sources.database as db_mod
+
+        # Reset the singleton so we get a fresh engine
+        db_mod.reset_engine()
+        engine = db_mod.get_engine(db_path=tmp_path / "test.db")
+        return engine, db_mod
+
+    def _cleanup(self, db_mod):
+        db_mod.reset_engine()
+
+    def test_insert_and_retrieve(self, tmp_path):
+        """Inserted content items should be retrievable via select."""
+        import sqlalchemy as sa
+
+        engine, db_mod = self._get_test_engine(tmp_path)
+        try:
+            # Insert directly via SQL since insert_content_items expects dataclass
+            with engine.begin() as conn:
+                conn.execute(
+                    db_mod.content_items.insert().values(
+                        source_type="test",
+                        source_id="item-1",
+                        title="Test Title",
+                        content="Test content",
+                        author="tester",
+                        url="https://example.com/1",
+                        timestamp=1700000000,
+                        trust_tier="b",
+                        metadata=None,
+                        retrieved_at=1700000000,
+                    )
+                )
+
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    sa.select(db_mod.content_items).where(
+                        db_mod.content_items.c.source_id == "item-1"
+                    )
+                ).fetchall()
+
+            assert len(rows) == 1
+            assert rows[0].title == "Test Title"
+            assert rows[0].source_type == "test"
+        finally:
+            self._cleanup(db_mod)
+
+    def test_duplicate_handling(self, tmp_path):
+        """Inserting the same source_type+source_id twice should not raise."""
+        import sqlalchemy as sa
+
+        engine, db_mod = self._get_test_engine(tmp_path)
+        try:
+            row_data = dict(
+                source_type="test",
+                source_id="dup-1",
+                title="Title",
+                content="Content",
+                author="author",
+                url="https://example.com/dup",
+                timestamp=1700000000,
+                trust_tier="b",
+                metadata=None,
+                retrieved_at=1700000000,
+            )
+
+            with engine.begin() as conn:
+                conn.execute(db_mod.content_items.insert().values(**row_data))
+
+            # Second insert with same unique key should raise IntegrityError
+            with pytest.raises(sa.exc.IntegrityError):
+                with engine.begin() as conn:
+                    conn.execute(db_mod.content_items.insert().values(**row_data))
+
+            # Verify only one row exists
+            with engine.connect() as conn:
+                count = conn.execute(
+                    sa.select(sa.func.count()).select_from(db_mod.content_items).where(
+                        db_mod.content_items.c.source_id == "dup-1"
+                    )
+                ).scalar()
+            assert count == 1
+        finally:
+            self._cleanup(db_mod)
+
+    def test_upsert_sender(self, tmp_path):
+        """upsert_newsletter_sender should insert new and update existing."""
+        engine, db_mod = self._get_test_engine(tmp_path)
+        try:
+            result = db_mod.upsert_newsletter_sender(
+                email="test@example.com",
+                display_name="Test User",
+                trust_tier="a",
+                added_at=1700000000,
+            )
+            assert result is True
+
+            # Verify inserted
+            tier = db_mod.get_sender_trust_tier("test@example.com")
+            assert tier == "a"
+
+            # Update trust tier
+            result2 = db_mod.upsert_newsletter_sender(
+                email="test@example.com",
+                trust_tier="b",
+                added_at=1700000000,
+            )
+            assert result2 is True
+
+            tier2 = db_mod.get_sender_trust_tier("test@example.com")
+            assert tier2 == "b"
+        finally:
+            self._cleanup(db_mod)
+
+    def test_get_sender_not_found(self, tmp_path):
+        """Looking up a non-existent sender should return None."""
+        engine, db_mod = self._get_test_engine(tmp_path)
+        try:
+            result = db_mod.get_sender_trust_tier("nobody@example.com")
+            assert result is None
+        finally:
+            self._cleanup(db_mod)
+
+    def test_tables_created_on_engine_init(self, tmp_path):
+        """get_engine should auto-create all tables."""
+        import sqlalchemy as sa
+
+        engine, db_mod = self._get_test_engine(tmp_path)
+        try:
+            inspector = sa.inspect(engine)
+            table_names = inspector.get_table_names()
+            assert "content_items" in table_names
+            assert "posts" in table_names
+            assert "newsletter_senders" in table_names
+        finally:
+            self._cleanup(db_mod)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

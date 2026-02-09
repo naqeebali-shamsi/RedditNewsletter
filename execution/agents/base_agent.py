@@ -10,7 +10,8 @@ from tenacity import (
     retry,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
+    wait_random,
+    retry_if_exception,
 )
 
 try:
@@ -154,31 +155,38 @@ class BaseAgent:
             self.client_type = "unknown"
 
     # ------------------------------------------------------------------
-    # Provider call with retry (Upgrade 2)
+    # Provider call with retry (Upgrade 2 — tenacity)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _log_retry(retry_state):
+        """Logging callback invoked before each retry sleep."""
+        exc = retry_state.outcome.exception()
+        attempt = retry_state.attempt_number
+        print(f"[retry] Attempt {attempt} failed ({exc}), retrying...")
 
     def _call_provider_with_retry(self, provider_name, call_fn):
         """
-        Execute *call_fn* with up to 2 retry attempts on transient errors.
+        Execute *call_fn* with up to 2 retry attempts on transient errors
+        using tenacity for exponential backoff with jitter.
 
         Raises ProviderError on permanent failure.
         """
-        last_exc = None
-        for attempt in range(3):  # initial + 2 retries
-            try:
-                return call_fn()
-            except Exception as e:
-                last_exc = e
-                if attempt < 2 and _is_transient(e):
-                    wait = (attempt + 1) * 2  # 2s, 4s
-                    time.sleep(wait)
-                    continue
-                break
-        raise ProviderError(
-            provider_name,
-            str(last_exc),
-            original_error=last_exc,
+        retrying = retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=2, max=30) + wait_random(0, 2),
+            retry=retry_if_exception(_is_transient),
+            before_sleep=self._log_retry,
+            reraise=True,
         )
+        try:
+            return retrying(call_fn)()
+        except Exception as e:
+            raise ProviderError(
+                provider_name,
+                str(e),
+                original_error=e,
+            )
 
     # ------------------------------------------------------------------
     # Response validation (Upgrade 3)

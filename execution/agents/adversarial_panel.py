@@ -21,6 +21,7 @@ import json
 import re
 import os
 from abc import ABC, abstractmethod
+from execution.utils.json_parser import extract_json_from_llm
 
 
 @dataclass
@@ -533,10 +534,8 @@ Output ONLY valid JSON."""
             }
 
         try:
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                result = json.loads(json_match.group())
-
+            result = extract_json_from_llm(response)
+            if result is not None:
                 # Ensure all expected keys exist
                 for key in ["inaccuracy", "unfairness", "disorganization", "poor_writing"]:
                     if key not in result:
@@ -554,7 +553,7 @@ Output ONLY valid JSON."""
                 result["overall_passed"] = result.get("overall_passed", result["weighted_score"] >= 7.0)
 
                 return result
-        except (json.JSONDecodeError, KeyError) as e:
+        except (KeyError, TypeError) as e:
             pass
 
         # Default failure response
@@ -659,10 +658,8 @@ Be brutally honest. Output ONLY valid JSON."""
 
         # Parse JSON response
         try:
-            # Extract JSON from response (handle markdown code blocks)
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                data = json.loads(json_match.group())
+            data = extract_json_from_llm(response)
+            if data is not None:
                 return ExpertCritique(
                     expert_name=expert['name'],
                     agency=expert.get('role', 'Expert'),
@@ -671,16 +668,18 @@ Be brutally honest. Output ONLY valid JSON."""
                     failures=data.get('failures', [])[:5],  # Max 5 failures
                     fixes=data.get('fixes', [])[:5]  # Max 5 fixes
                 )
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            # Fallback critique if parsing fails
-            return ExpertCritique(
-                expert_name=expert['name'],
-                agency=expert.get('role', 'Expert'),
-                score=4,
-                verdict="Parse error - assume mediocre",
-                failures=["Could not parse expert response - content likely problematic"],
-                fixes=["Review content manually for quality issues"]
-            )
+        except (KeyError, ValueError, TypeError) as e:
+            pass
+
+        # Fallback critique if parsing fails
+        return ExpertCritique(
+            expert_name=expert['name'],
+            agency=expert.get('role', 'Expert'),
+            score=4,
+            verdict="Parse error - assume mediocre",
+            failures=["Could not parse expert response - content likely problematic"],
+            fixes=["Review content manually for quality issues"]
+        )
 
     def review_content(
         self,

@@ -1,6 +1,7 @@
 from .base_agent import BaseAgent, LLMError
 import json
 from typing import List, Dict, Optional
+from execution.utils.json_parser import extract_json_from_llm
 
 # Import Imagen client for server-side generation
 from .nano_banana_client import NanoBananaClient
@@ -55,48 +56,15 @@ IMPORTANT: The "prompt" field must contain a detailed image generation prompt, n
             print(f"  [Visuals] LLM call failed: {e}")
             return []
 
-        original_response = response  # Keep for debug
-
-        # Strip markdown if present
-        if "```json" in response:
-            try:
-                response = response.split("```json")[1].split("```")[0]
-            except IndexError:
-                print(f"  [Visuals] Failed to extract JSON from ```json block")
-                print(f"  [Visuals] Raw response: {original_response[:500]}")
-                return []
-        elif "```" in response:
-            try:
-                response = response.split("```")[1].split("```")[0]
-            except IndexError:
-                print(f"  [Visuals] Failed to extract JSON from ``` block")
-                print(f"  [Visuals] Raw response: {original_response[:500]}")
-                return []
-
-        # Try to find JSON array in response if not already clean
-        response = response.strip()
-        if not response.startswith("["):
-            # Try to find JSON array anywhere in response
-            import re
-            match = re.search(r'\[[\s\S]*\]', response)
-            if match:
-                response = match.group(0)
-            else:
-                print(f"  [Visuals] No JSON array found in response")
-                print(f"  [Visuals] Raw response: {original_response[:500]}")
-                return []
-
-        try:
-            result = json.loads(response)
-            if not isinstance(result, list):
-                print(f"  [Visuals] JSON is not a list: {type(result)}")
-                return []
+        result = extract_json_from_llm(response)
+        if isinstance(result, list):
             return result
-        except (json.JSONDecodeError, TypeError) as e:
-            print(f"  [Visuals] Failed to parse visual plan JSON: {e}")
-            print(f"  [Visuals] Attempted to parse: {response[:300]}")
-            print(f"  [Visuals] Original response: {original_response[:300]}")
+        if result is not None:
+            print(f"  [Visuals] JSON is not a list: {type(result)}")
             return []
+        print(f"  [Visuals] No valid JSON found in response")
+        print(f"  [Visuals] Raw response: {response[:500]}")
+        return []
 
     def generate_image(self, prompt, output_path):
         """

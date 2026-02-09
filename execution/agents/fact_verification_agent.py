@@ -18,6 +18,7 @@ WSJ Four Showstoppers addressed:
 
 import os
 import json
+from execution.utils.json_parser import extract_json_from_llm
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -28,6 +29,34 @@ try:
     from execution.config import config
 except ImportError:
     config = None
+
+# Comprehensive English stop words (based on NLTK's English stop words list).
+# Used for claim deduplication and back-reference overlap checks.
+# Hardcoded to avoid adding NLTK as a dependency.
+STOP_WORDS = frozenset({
+    "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your",
+    "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her",
+    "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs",
+    "themselves", "what", "which", "who", "whom", "this", "that", "these", "those",
+    "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+    "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if",
+    "or", "because", "as", "until", "while", "of", "at", "by", "for", "with",
+    "about", "against", "between", "through", "during", "before", "after", "above",
+    "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under",
+    "again", "further", "then", "once", "here", "there", "when", "where", "why",
+    "how", "all", "both", "each", "few", "more", "most", "other", "some", "such",
+    "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s",
+    "t", "can", "will", "just", "don", "should", "now", "d", "ll", "m", "o", "re",
+    "ve", "y", "ain", "aren", "couldn", "didn", "doesn", "hadn", "hasn", "haven",
+    "isn", "ma", "mightn", "mustn", "needn", "shan", "shouldn", "wasn", "weren",
+    "won", "wouldn", "could", "would", "might", "shall", "may", "must", "need",
+    "also", "however", "therefore", "thus", "hence", "moreover", "furthermore",
+    "nevertheless", "nonetheless", "meanwhile", "otherwise", "instead", "although",
+    "though", "yet", "still", "already", "even", "perhaps", "rather", "quite",
+    "much", "many", "several", "often", "always", "never", "sometimes", "usually",
+    "well", "really", "actually", "basically", "certainly", "definitely", "probably",
+    "simply", "truly",
+})
 
 
 class VerificationStatus(Enum):
@@ -685,12 +714,7 @@ If this exact quote cannot be found published ANYWHERE online, it is almost cert
         return unique
 
     # Common stop words excluded from back-reference overlap check
-    _STOP_WORDS = frozenset({
-        "about", "after", "again", "being", "between", "could", "during",
-        "every", "first", "their", "there", "these", "thing", "think",
-        "those", "through", "under", "using", "which", "while", "would",
-        "other", "should", "still", "where", "before", "might", "never",
-    })
+    _STOP_WORDS = STOP_WORDS
 
     def _validate_claims_against_source(self, claims: List[Claim], content: str) -> List[Claim]:
         """Ensure extracted claims actually come from the article.
@@ -931,15 +955,12 @@ If the article vaguely says "Research from X shows..." without a specific paper,
     def _parse_claims(self, response: str) -> List[Claim]:
         """Parse LLM response into Claim objects."""
         try:
-            # Extract JSON from response
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0]
+            data = extract_json_from_llm(response)
+            if data is None:
+                print("Failed to parse claims: no valid JSON found")
+                return []
 
-            data = json.loads(response.strip())
             claims = []
-
             for item in data.get("claims", []):
                 claims.append(Claim(
                     text=item.get("text", ""),
@@ -1071,21 +1092,9 @@ Please verify this specific claim using web search. Return JSON with status, sou
                                    gemini_response=None) -> VerificationResult:
         """Parse verification response into VerificationResult."""
         try:
-            # Try to extract JSON
-            if "```json" in response:
-                json_str = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                json_str = response.split("```")[1].split("```")[0]
-            else:
-                # Try to find JSON object
-                start = response.find("{")
-                end = response.rfind("}") + 1
-                if start >= 0 and end > start:
-                    json_str = response[start:end]
-                else:
-                    raise ValueError("No JSON found in response")
-
-            data = json.loads(json_str.strip())
+            data = extract_json_from_llm(response)
+            if data is None:
+                raise ValueError("No JSON found in response")
 
             # Map status string to enum
             status_map = {

@@ -17,10 +17,7 @@ Usage:
 """
 
 import feedparser
-import json
-import sqlite3
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -42,9 +39,7 @@ from .base_source import (
     TrustTier,
 )
 from . import register_source
-
-# Database path
-DB_PATH = Path(__file__).parent.parent.parent / "reddit_content.db"
+from .database import insert_content_items, insert_legacy_posts
 
 # Subreddit tier configuration
 SUBREDDIT_TIERS = {
@@ -284,99 +279,12 @@ class RedditSource(ContentSource):
     # =========================================================================
 
     def insert_to_legacy_db(self, items: List[ContentItem]) -> int:
-        """
-        Insert items to legacy 'posts' table for backward compatibility.
-
-        Args:
-            items: List of ContentItems to insert
-
-        Returns:
-            Number of new posts inserted
-        """
-        if not items:
-            return 0
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        inserted = 0
-        for item in items:
-            try:
-                metadata = item.metadata or {}
-                cursor.execute(
-                    """
-                    INSERT INTO posts (subreddit, title, url, author, content,
-                                     timestamp, upvotes, num_comments, retrieved_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        metadata.get("subreddit", "unknown"),
-                        item.title,
-                        item.url,
-                        item.author,
-                        item.content,
-                        item.timestamp,
-                        metadata.get("upvotes", 0),
-                        metadata.get("num_comments", 0),
-                        item.retrieved_at,
-                    ),
-                )
-                inserted += 1
-            except sqlite3.IntegrityError:
-                # Duplicate URL, skip
-                pass
-
-        conn.commit()
-        conn.close()
-        return inserted
+        """Insert items to legacy 'posts' table for backward compatibility."""
+        return insert_legacy_posts(items)
 
     def insert_to_unified_db(self, items: List[ContentItem]) -> int:
-        """
-        Insert items to unified 'content_items' table.
-
-        Args:
-            items: List of ContentItems to insert
-
-        Returns:
-            Number of new items inserted
-        """
-        if not items:
-            return 0
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-
-        inserted = 0
-        for item in items:
-            try:
-                cursor.execute(
-                    """
-                    INSERT INTO content_items (source_type, source_id, title, content,
-                                              author, url, timestamp, trust_tier,
-                                              metadata, retrieved_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        item.source_type.value,
-                        item.source_id,
-                        item.title,
-                        item.content,
-                        item.author,
-                        item.url,
-                        item.timestamp,
-                        item.trust_tier.value,
-                        json.dumps(item.metadata) if item.metadata else None,
-                        item.retrieved_at,
-                    ),
-                )
-                inserted += 1
-            except sqlite3.IntegrityError:
-                # Duplicate source_type + source_id, skip
-                pass
-
-        conn.commit()
-        conn.close()
-        return inserted
+        """Insert items to unified 'content_items' table."""
+        return insert_content_items(items)
 
 
 # Apply retry decorator to network fetch if tenacity is available

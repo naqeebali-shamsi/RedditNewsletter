@@ -13,6 +13,7 @@ import time
 import json
 from typing import List, Dict, Optional
 from .base_agent import BaseAgent, LLMError
+from execution.utils.json_parser import extract_json_from_llm
 
 
 # Subreddits optimized for AI Engineer content
@@ -181,26 +182,21 @@ Think strategically. This content needs to position the author as someone compan
 
         # Parse response
         if response:
-            try:
-                # Strip markdown if present
-                if "```json" in response:
-                    response = response.split("```json")[1].split("```")[0]
-                elif "```" in response:
-                    response = response.split("```")[1].split("```")[0]
-
-                result = json.loads(response.strip())
-
-                # Get the actual topic
-                idx = result.get('selected_number', 1) - 1
-                if 0 <= idx < len(topics):
-                    selected_topic = topics[idx]
-                    selected_topic['reasoning'] = result.get('reasoning', '')
-                    selected_topic['angle'] = result.get('angle', '')
-                    selected_topic['recruiter_appeal'] = result.get('recruiter_appeal', '')
-                    return selected_topic
-
-            except (json.JSONDecodeError, KeyError, TypeError) as e:
-                print(f"  [!] Parse error: {e}")
+            result = extract_json_from_llm(response)
+            if result is not None:
+                try:
+                    # Get the actual topic
+                    idx = result.get('selected_number', 1) - 1
+                    if 0 <= idx < len(topics):
+                        selected_topic = topics[idx]
+                        selected_topic['reasoning'] = result.get('reasoning', '')
+                        selected_topic['angle'] = result.get('angle', '')
+                        selected_topic['recruiter_appeal'] = result.get('recruiter_appeal', '')
+                        return selected_topic
+                except (KeyError, TypeError) as e:
+                    print(f"  [!] Parse error: {e}")
+            else:
+                print("  [!] Parse error: no valid JSON found")
 
         # Fallback to first AI-relevant topic
         for t in topics:

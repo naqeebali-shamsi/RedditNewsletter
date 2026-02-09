@@ -24,6 +24,7 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from execution.utils.json_parser import extract_json_from_llm
 
 # Try to import LLM client
 try:
@@ -242,7 +243,9 @@ Respond in this exact JSON format:
                 temperature=0.3,
                 max_tokens=200,
             )
-            result = json.loads(response.choices[0].message.content)
+            result = extract_json_from_llm(response.choices[0].message.content)
+            if result is None:
+                raise ValueError("No valid JSON in Groq response")
             return result["is_signal"], result.get("score", 0.5), result.get("reasoning", "")
         except Exception as e:
             print(f"    [!] Groq error: {e}, falling back to heuristics")
@@ -253,11 +256,8 @@ Respond in this exact JSON format:
             genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
             model = genai.GenerativeModel("gemini-1.5-flash")
             response = model.generate_content(prompt)
-            # Extract JSON from response
-            text = response.text
-            if "{" in text and "}" in text:
-                json_str = text[text.find("{"):text.rfind("}")+1]
-                result = json.loads(json_str)
+            result = extract_json_from_llm(response.text)
+            if result is not None:
                 return result["is_signal"], result.get("score", 0.5), result.get("reasoning", "")
         except Exception as e:
             print(f"    [!] Gemini error: {e}, falling back to heuristics")

@@ -19,7 +19,7 @@ import time
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Load environment variables
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 load_dotenv()
 
 # Centralized configuration
@@ -1100,23 +1100,13 @@ def save_to_env(key: str, value: str):
     """Save or update a key in .env file."""
     env_path = PROJECT_ROOT / ".env"
 
-    # Read existing content
-    existing = {}
-    if env_path.exists():
-        with open(env_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if '=' in line and not line.startswith('#'):
-                    k, v = line.split('=', 1)
-                    existing[k.strip()] = v.strip()
+    # Ensure the .env file exists before set_key tries to read it
+    if not env_path.exists():
+        env_path.touch()
 
-    # Update value
-    existing[key] = value
-
-    # Write back
-    with open(env_path, 'w') as f:
-        for k, v in existing.items():
-            f.write(f"{k}={v}\n")
+    # Use python-dotenv's set_key which preserves comments, blank lines,
+    # and handles quoting correctly
+    set_key(str(env_path), key, value)
 
     # Reload into environment
     os.environ[key] = value

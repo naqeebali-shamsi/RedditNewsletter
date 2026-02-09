@@ -13,6 +13,7 @@ import sqlite3
 from pathlib import Path
 from typing import List, Dict, Optional
 from .base_agent import BaseAgent, LLMError
+from execution.utils.json_parser import extract_json_from_llm
 
 
 # Database path
@@ -148,19 +149,12 @@ Focus on TECHNICAL themes, not announcements. What would a Staff Engineer find i
             print(f"  [!] LLM call failed during commit analysis: {e}")
             return []
 
-        try:
-            # Parse JSON response
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0]
-
-            result = json.loads(response.strip())
+        result = extract_json_from_llm(response)
+        if result is not None:
             return result.get("themes", [])
 
-        except (json.JSONDecodeError, KeyError) as e:
-            print(f"  [!] Failed to parse themes: {e}")
-            return []
+        print("  [!] Failed to parse themes: no valid JSON found")
+        return []
 
     def select_best_theme(self, themes: List[Dict]) -> Optional[Dict]:
         """

@@ -13,6 +13,7 @@ Philosophy:
 
 import json
 from typing import Dict, Optional, Callable
+from execution.utils.json_parser import extract_json_from_llm
 from .base_agent import BaseAgent, LLMError
 
 
@@ -121,20 +122,15 @@ If it mentions "10 trillion parameters", that's a red flag - verify or flag as s
                 "can_write_without_search": []
             }
 
-        try:
-            # Parse JSON from response
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0]
-            return json.loads(response.strip())
-        except (json.JSONDecodeError, KeyError, TypeError):
-            return {
-                "key_entities": [],
-                "search_queries": [{"query": topic, "purpose": "general research"}],
-                "red_flags": [],
-                "can_write_without_search": []
-            }
+        result = extract_json_from_llm(response)
+        if result is not None:
+            return result
+        return {
+            "key_entities": [],
+            "search_queries": [{"query": topic, "purpose": "general research"}],
+            "red_flags": [],
+            "can_write_without_search": []
+        }
 
     def _execute_searches(self, research_plan: Dict, search_func: Callable) -> Dict:
         """Execute web searches based on the research plan."""
@@ -231,20 +227,16 @@ RULES:
                 "warning": "Research synthesis failed - Writer should avoid ALL specific claims"
             }
 
-        try:
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0]
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0]
-            return json.loads(response.strip())
-        except (json.JSONDecodeError, KeyError, TypeError):
-            return {
-                "verified_facts": [],
-                "unverified_claims": [],
-                "general_knowledge": [],
-                "unknowns": ["Failed to parse research results"],
-                "warning": "Research synthesis failed - Writer should avoid ALL specific claims"
-            }
+        result = extract_json_from_llm(response)
+        if result is not None:
+            return result
+        return {
+            "verified_facts": [],
+            "unverified_claims": [],
+            "general_knowledge": [],
+            "unknowns": ["Failed to parse research results"],
+            "warning": "Research synthesis failed - Writer should avoid ALL specific claims"
+        }
 
     def _generate_constraints(self, fact_sheet: Dict) -> str:
         """Generate natural language constraints for the Writer."""

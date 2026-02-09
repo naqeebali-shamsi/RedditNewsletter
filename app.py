@@ -13,6 +13,7 @@ from pathlib import Path
 from execution.utils.datetime_utils import utc_now
 import html
 import json
+import math
 import time
 
 # Add project root to path
@@ -1894,6 +1895,23 @@ def main():
                 else:
                     st.session_state.custom_github_repos = None
 
+            st.markdown("---")
+            if st.button("Run Health Check", key="health_check_btn", use_container_width=True):
+                try:
+                    from execution.utils.health import check_health
+                    result = check_health()
+                    status = result["status"]
+                    if status == "healthy":
+                        st.success(f"System: {status}")
+                    elif status == "degraded":
+                        st.warning(f"System: {status}")
+                    else:
+                        st.error(f"System: {status}")
+                    for name, info in result["checks"].items():
+                        st.caption(f"{name}: {info.get('status', '?')} - {info.get('detail', '')}")
+                except Exception as e:
+                    st.error(f"Health check failed: {e}")
+
     # Main content
     if st.session_state.viewing_history:
         # Viewing a history item
@@ -2096,7 +2114,7 @@ def main():
                 percent = int(value * 100)
 
                 # SVG progress ring
-                circumference = 2 * 3.14159 * 45
+                circumference = 2 * math.pi * 45
                 offset = circumference - (value * circumference)
 
                 progress_container.markdown(f'''

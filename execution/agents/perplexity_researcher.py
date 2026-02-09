@@ -59,6 +59,7 @@ FOR TECHNICAL CLAIMS:
 - Round numbers (40%, 30%) are suspicious without source
 
 OUTPUT FORMAT:
+Respond with valid JSON only. No markdown fences, no explanation text.
 Return a JSON object with:
 - verified_facts: Array of {fact, source_url, confidence}
 - unverified_claims: Array of {claim, reason, recommendation}
@@ -83,6 +84,7 @@ RED FLAGS:
 - Hardware specs that sound impossible
 
 OUTPUT FORMAT:
+Respond with valid JSON only. No markdown fences, no explanation text.
 Return a JSON object with:
 - verified_claims: [{claim, source_url, confidence}]
 - false_claims: [{claim, why_false, correction}]
@@ -94,8 +96,6 @@ Return a JSON object with:
 Be ruthless. If you can't verify it, flag it."""
 
     def __init__(self, model: str = None):
-        if model is None:
-            model = config.models.RESEARCH_MODEL_FALLBACK
         """
         Initialize the Perplexity research agent.
 
@@ -105,6 +105,8 @@ Be ruthless. If you can't verify it, flag it."""
                    - sonar: Faster, slightly less accurate
                    - sonar-reasoning: For complex multi-step research
         """
+        if model is None:
+            model = config.models.RESEARCH_MODEL_FALLBACK
         api_key = os.getenv("PERPLEXITY_API_KEY")
         if not api_key:
             raise ValueError("PERPLEXITY_API_KEY environment variable required")
@@ -140,9 +142,15 @@ INSTRUCTIONS:
 5. For metrics/numbers: Find the original source
 6. Flag anything that seems made up (like "parameters per second")
 
-Return your findings as a JSON object with verified_facts, unverified_claims, general_knowledge, and unknowns."""
+Respond with valid JSON only. No markdown fences, no explanation text.
+Return a JSON object with verified_facts, unverified_claims, general_knowledge, and unknowns."""
 
         try:
+            # Perplexity's Sonar models do not support
+            # response_format={"type": "json_object"} despite the OpenAI-compatible
+            # API surface. JSON is enforced via prompt instructions and parsed with
+            # extract_json_from_llm() in _parse_response(). Re-evaluate if Perplexity
+            # adds native structured output support.
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -154,9 +162,14 @@ Return your findings as a JSON object with verified_facts, unverified_claims, ge
 
             result = self._parse_response(response.choices[0].message.content)
 
-            # Extract citations if present in response
-            if hasattr(response.choices[0].message, 'citations'):
-                result["perplexity_citations"] = response.choices[0].message.citations
+            # Extract citations from Perplexity response
+            citations = self._extract_citations(response)
+            if citations:
+                result["perplexity_citations"] = citations
+                result["sources"] = [
+                    {"url": url, "provider": "perplexity"}
+                    for url in citations
+                ]
 
             # Generate writer constraints
             result["writer_constraints"] = self._generate_writer_constraints(result)
@@ -197,7 +210,7 @@ INSTRUCTIONS:
 5. Flag any metrics that don't exist (like "parameters per second")
 6. Flag vague appeals to authority without specific sources
 
-Return your findings as a JSON object."""
+Respond with valid JSON only. No markdown fences, no explanation text."""
 
         try:
             response = self.client.chat.completions.create(
@@ -210,6 +223,15 @@ Return your findings as a JSON object."""
             )
 
             result = self._parse_verification_response(response.choices[0].message.content)
+
+            # Extract citations from Perplexity response
+            citations = self._extract_citations(response)
+            if citations:
+                result["perplexity_citations"] = citations
+                result["sources"] = [
+                    {"url": url, "provider": "perplexity"}
+                    for url in citations
+                ]
 
             # Generate revision instructions if needed
             if result.get("recommendation") != "PASS":
@@ -228,6 +250,36 @@ Return your findings as a JSON object."""
                 "recommendation": "REJECT",
                 "revision_instructions": f"Verification failed: {e}. Manual review required."
             }
+
+    def _extract_citations(self, response) -> List[str]:
+        """
+        Extract citation URLs from a Perplexity API response.
+
+        Perplexity returns citations in multiple possible locations depending
+        on the API version and client library:
+        - response.citations (top-level, common in newer API versions)
+        - response.choices[0].message.citations (message-level)
+
+        Returns:
+            List of citation URL strings, or empty list if none found.
+        """
+        citations = []
+
+        # Check top-level response citations (primary location)
+        if hasattr(response, 'citations') and response.citations:
+            citations = list(response.citations)
+
+        # Fallback: check message-level citations
+        if not citations:
+            try:
+                msg = response.choices[0].message
+                if hasattr(msg, 'citations') and msg.citations:
+                    citations = list(msg.citations)
+            except (IndexError, AttributeError):
+                pass
+
+        # Filter to valid URL strings only
+        return [c for c in citations if isinstance(c, str) and c.startswith("http")]
 
     def _parse_response(self, text: str) -> Dict:
         """Parse the research response from Perplexity."""

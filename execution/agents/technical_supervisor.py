@@ -162,7 +162,12 @@ Return a structured assessment with SPECIFIC line-by-line failures.""",
         return [(lang or 'unknown', code.strip()) for lang, code in matches]
 
     def _validate_python_syntax(self, code: str) -> Tuple[bool, Optional[str]]:
-        """Check if Python code is syntactically valid."""
+        """Check if Python code is syntactically valid.
+
+        Uses ast.parse for runtime syntax checking of code blocks in generated
+        articles. This is intentional — pyflakes/pylint are dev-time linters
+        and should not be added as a runtime dependency.
+        """
         try:
             ast.parse(code)
             return True, None

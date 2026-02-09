@@ -21,6 +21,9 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 
 # Try to import optional dependencies
+# Note: textstat is NOT used. Readability metrics (Flesch-Kincaid etc.) are not
+# part of the style scoring model. Sentence-level analysis uses nltk and
+# lexical diversity uses lexicalrichness — both are sufficient.
 try:
     from lexicalrichness import LexicalRichness
     HAS_LEXICAL = True

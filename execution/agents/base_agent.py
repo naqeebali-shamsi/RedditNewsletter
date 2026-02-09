@@ -3,6 +3,29 @@ Shared base class for all agents.
 Handles LLM interaction and common utilities.
 """
 
+# LiteLLM Investigation (P3-B, 2026-02-09):
+# Verdict: KEEP current provider routing
+# Reason: LiteLLM supports Groq, OpenAI, and Gemini (including Google Search
+#   grounding via tools=[{"googleSearch": {}}] and JSON mode), and handles
+#   Anthropic cache_control pass-through. However, it normalizes all provider
+#   exceptions to OpenAI-compatible types, which would regress our precise
+#   typed-exception detection in _is_transient() (e.g. groq.RateLimitError,
+#   google.api_core.exceptions.ResourceExhausted). Groq is notably absent
+#   from LiteLLM's explicit exception mapping table. Additionally, the SDK
+#   pulls in 15+ transitive dependencies (tiktoken, tokenizers, aiohttp,
+#   pydantic, jsonschema, etc.) vs our current lean trio of openai + google-genai
+#   + groq. The gemini_researcher.py also directly accesses grounding_metadata
+#   from Gemini response candidates (search queries, source URLs), and it is
+#   unclear whether LiteLLM preserves this metadata in its normalized response.
+# Dealbreakers:
+#   - Exception type normalization loses per-provider transient error granularity
+#   - Groq not in LiteLLM exception mapping table (falls to generic APIConnectionError)
+#   - Dependency footprint (~15+ new transitive deps) for marginal routing benefit
+#   - Uncertain preservation of Gemini grounding_metadata in normalized responses
+# Future: Reconsider if (a) we add 5+ providers, (b) LiteLLM adds a lightweight
+#   SDK-only install without proxy deps, or (c) we drop custom exception handling
+#   in favor of LiteLLM's built-in retry/fallback router.
+
 import os
 import time
 

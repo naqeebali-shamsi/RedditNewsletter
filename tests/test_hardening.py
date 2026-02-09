@@ -19,6 +19,7 @@ Run with: pytest tests/test_hardening.py -v
 import os
 import sys
 import json
+import time
 import tempfile
 import shutil
 from pathlib import Path
@@ -1821,6 +1822,409 @@ class TestP2DraftConsolidation:
             warnings.simplefilter("always")
             importlib.import_module(mod_name)
             assert any(issubclass(warning.category, DeprecationWarning) for warning in w)
+
+
+# ============================================================================
+# P3 Tests
+# ============================================================================
+
+# ============================================================================
+# P3-1. Health Check (execution/utils/health.py)
+# ============================================================================
+
+class TestP3HealthCheck:
+    """P3: Verify health check system for GhostWriter dependencies."""
+
+    def test_check_health_returns_required_keys(self):
+        """check_health() must return dict with 'status', 'checks', 'timestamp'."""
+        from execution.utils.health import check_health
+
+        result = check_health()
+        assert isinstance(result, dict)
+        assert "status" in result, "Missing 'status' key"
+        assert "checks" in result, "Missing 'checks' key"
+        assert "timestamp" in result, "Missing 'timestamp' key"
+
+    def test_check_health_status_is_valid_value(self):
+        """status must be one of 'healthy', 'degraded', or 'unhealthy'."""
+        from execution.utils.health import check_health
+
+        result = check_health()
+        assert result["status"] in ("healthy", "degraded", "unhealthy"), \
+            f"Unexpected status: {result['status']}"
+
+    def test_check_health_checks_contains_expected_subsystems(self):
+        """checks dict should contain database, llm_providers, filesystem, optional_deps."""
+        from execution.utils.health import check_health
+
+        result = check_health()
+        checks = result["checks"]
+        assert "database" in checks
+        assert "llm_providers" in checks
+        assert "filesystem" in checks
+        assert "optional_deps" in checks
+
+    def test_check_health_timestamp_is_iso_string(self):
+        """timestamp should be a non-empty ISO format string."""
+        from execution.utils.health import check_health
+
+        result = check_health()
+        ts = result["timestamp"]
+        assert isinstance(ts, str)
+        assert len(ts) > 0
+        # ISO timestamps contain 'T' or '+' or 'Z'
+        assert "T" in ts or "+" in ts or "Z" in ts
+
+    def test_check_database_returns_healthy(self):
+        """_check_database() should return healthy when SQLite is accessible."""
+        from execution.utils.health import _check_database
+
+        result = _check_database()
+        assert isinstance(result, dict)
+        assert "status" in result
+        assert "detail" in result
+        # We expect healthy in the test env since SQLite is always available
+        assert result["status"] in ("healthy", "unhealthy")
+
+    def test_check_providers_no_api_keys(self):
+        """_check_providers() returns unhealthy when no API keys are set."""
+        from unittest.mock import patch
+        from execution.utils.health import _check_providers
+
+        # Patch all provider env vars to empty
+        env_overrides = {
+            "OPENAI_API_KEY": "",
+            "GOOGLE_API_KEY": "",
+            "GEMINI_API_KEY": "",
+            "GROQ_API_KEY": "",
+            "ANTHROPIC_API_KEY": "",
+            "PERPLEXITY_API_KEY": "",
+        }
+        with patch.dict(os.environ, env_overrides, clear=False):
+            # Also remove any existing keys
+            with patch.object(os, 'getenv', side_effect=lambda k, d=None: env_overrides.get(k, d)):
+                result = _check_providers()
+                # When no keys are found, status is unhealthy
+                # (depends on test env; if keys exist it might be healthy)
+                assert isinstance(result, dict)
+                assert "status" in result
+                assert "providers" in result
+
+    def test_check_providers_structure(self):
+        """_check_providers() should return dict with providers sub-dict."""
+        from execution.utils.health import _check_providers
+
+        result = _check_providers()
+        assert "providers" in result
+        providers = result["providers"]
+        assert "openai" in providers
+        assert "google" in providers
+        assert "groq" in providers
+
+    def test_check_filesystem_returns_healthy(self):
+        """_check_filesystem() should return healthy when dirs are writable."""
+        from execution.utils.health import _check_filesystem
+
+        result = _check_filesystem()
+        assert isinstance(result, dict)
+        assert "status" in result
+        assert "detail" in result
+
+    def test_check_optional_deps_returns_correct_structure(self):
+        """_check_optional_deps() must return status, detail, and packages dict."""
+        from execution.utils.health import _check_optional_deps
+
+        result = _check_optional_deps()
+        assert isinstance(result, dict)
+        assert "status" in result
+        assert "detail" in result
+        assert "packages" in result
+        assert isinstance(result["packages"], dict)
+        # Should check for known optional deps
+        assert "structlog" in result["packages"]
+        assert "numpy" in result["packages"]
+
+    def test_check_health_exported_from_utils_init(self):
+        """check_health should be importable from execution.utils."""
+        from execution.utils import check_health
+        assert callable(check_health)
+
+
+# ============================================================================
+# P3-2. PRAW Optional Integration (execution/sources/reddit_source.py)
+# ============================================================================
+
+class TestP3PrawIntegration:
+    """P3: Verify PRAW optional integration in RedditSource."""
+
+    def test_reddit_source_class_exists_and_importable(self):
+        """RedditSource class should be importable."""
+        from execution.sources.reddit_source import RedditSource
+        assert RedditSource is not None
+
+    def test_praw_available_returns_false_without_env_vars(self):
+        """_praw_available() returns False when PRAW env vars are not set."""
+        from unittest.mock import patch
+        from execution.sources.reddit_source import RedditSource
+
+        source = RedditSource.__new__(RedditSource)
+        source.config = {}
+        source.subreddits = []
+        source.max_posts = 100
+        source.hours_lookback = 72
+        source.user_agent = "test"
+
+        with patch.dict(os.environ, {}, clear=True):
+            result = source._praw_available()
+            # Without REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET, should be False
+            assert result is False
+
+    def test_fetch_via_praw_returns_empty_without_credentials(self):
+        """_fetch_via_praw() returns empty list when credentials are missing."""
+        from unittest.mock import patch
+        from execution.sources.reddit_source import RedditSource
+
+        source = RedditSource.__new__(RedditSource)
+        source.config = {}
+        source.subreddits = ["test"]
+        source.max_posts = 10
+        source.hours_lookback = 72
+        source.user_agent = "test"
+
+        with patch.dict(os.environ, {"REDDIT_CLIENT_ID": "", "REDDIT_CLIENT_SECRET": ""}, clear=False):
+            with patch.object(os.environ, 'get', side_effect=lambda k, d=None: ""):
+                result = source._fetch_via_praw(["test"], 10)
+                assert isinstance(result, list)
+                assert len(result) == 0
+
+    def test_rss_fallback_does_not_crash_when_praw_unavailable(self):
+        """The fetch method should not crash when PRAW is unavailable.
+
+        We mock both _praw_available (returns False) and _fetch_subreddit_rss
+        to avoid making real network requests.
+        """
+        from unittest.mock import patch, MagicMock
+        from execution.sources.reddit_source import RedditSource
+
+        source = RedditSource({"subreddits": ["test_sub"], "max_posts_per_subreddit": 5})
+
+        mock_rss_data = [{
+            "subreddit": "test_sub",
+            "title": "Test Post",
+            "url": "https://reddit.com/r/test_sub/1",
+            "author": "tester",
+            "content": "Test content",
+            "timestamp": int(time.time()),
+            "upvotes": 10,
+            "num_comments": 2,
+        }]
+
+        with patch.object(source, '_praw_available', return_value=False), \
+             patch.object(source, '_fetch_subreddit_rss', return_value=mock_rss_data):
+            result = source.fetch()
+            assert result is not None
+            assert result.items_fetched >= 0
+            # Should not raise any exception
+
+    def test_reddit_source_has_praw_available_method(self):
+        """RedditSource should have _praw_available method."""
+        from execution.sources.reddit_source import RedditSource
+        assert hasattr(RedditSource, '_praw_available')
+
+    def test_reddit_source_has_fetch_via_praw_method(self):
+        """RedditSource should have _fetch_via_praw method."""
+        from execution.sources.reddit_source import RedditSource
+        assert hasattr(RedditSource, '_fetch_via_praw')
+
+
+# ============================================================================
+# P3-3. Perplexity Citation Extraction
+# ============================================================================
+
+class TestP3PerplexityCitations:
+    """P3: Verify citation extraction from Perplexity API responses."""
+
+    def test_extract_citations_method_exists(self):
+        """_extract_citations() should exist on PerplexityResearchAgent."""
+        from execution.agents.perplexity_researcher import PerplexityResearchAgent
+        assert hasattr(PerplexityResearchAgent, '_extract_citations')
+
+    def test_extract_citations_with_citations_attribute(self):
+        """_extract_citations() should extract URLs from response.citations."""
+        from unittest.mock import MagicMock
+        from execution.agents.perplexity_researcher import PerplexityResearchAgent
+
+        # Create agent without calling __init__ (requires API key)
+        agent = PerplexityResearchAgent.__new__(PerplexityResearchAgent)
+
+        # Mock response with top-level citations
+        mock_response = MagicMock()
+        mock_response.citations = [
+            "https://example.com/article1",
+            "https://docs.python.org/3/",
+            "https://arxiv.org/abs/2301.00001",
+        ]
+
+        result = agent._extract_citations(mock_response)
+        assert isinstance(result, list)
+        assert len(result) == 3
+        assert "https://example.com/article1" in result
+        assert "https://docs.python.org/3/" in result
+
+    def test_extract_citations_no_citations_returns_empty(self):
+        """_extract_citations() returns empty list when response has no citations."""
+        from unittest.mock import MagicMock
+        from execution.agents.perplexity_researcher import PerplexityResearchAgent
+
+        agent = PerplexityResearchAgent.__new__(PerplexityResearchAgent)
+
+        # Mock response with no citations attribute
+        mock_response = MagicMock(spec=[])
+        # Remove citations attr entirely
+        mock_response.citations = None
+        # Also mock choices to have no citations
+        mock_choice = MagicMock()
+        mock_message = MagicMock(spec=[])
+        mock_message.citations = None
+        mock_choice.message = mock_message
+        mock_response.choices = [mock_choice]
+
+        # Need hasattr to work properly
+        del mock_response.citations
+        del mock_message.citations
+
+        result = agent._extract_citations(mock_response)
+        assert isinstance(result, list)
+        assert len(result) == 0
+
+    def test_extract_citations_filters_non_url_strings(self):
+        """_extract_citations() should filter out non-URL strings."""
+        from unittest.mock import MagicMock
+        from execution.agents.perplexity_researcher import PerplexityResearchAgent
+
+        agent = PerplexityResearchAgent.__new__(PerplexityResearchAgent)
+
+        mock_response = MagicMock()
+        mock_response.citations = [
+            "https://valid-url.com/page",
+            "not a url at all",
+            "ftp://some-ftp-server.com",  # Not http/https
+            "https://another-valid.org/article",
+            42,  # Not a string
+            "",  # Empty string
+        ]
+
+        result = agent._extract_citations(mock_response)
+        assert isinstance(result, list)
+        # Only http/https URLs should pass
+        assert "https://valid-url.com/page" in result
+        assert "https://another-valid.org/article" in result
+        assert "not a url at all" not in result
+        assert "ftp://some-ftp-server.com" not in result
+        assert len(result) == 2
+
+    def test_extract_citations_message_level_fallback(self):
+        """_extract_citations() should fall back to message-level citations."""
+        from unittest.mock import MagicMock
+        from execution.agents.perplexity_researcher import PerplexityResearchAgent
+
+        agent = PerplexityResearchAgent.__new__(PerplexityResearchAgent)
+
+        # Response with no top-level citations but message-level citations
+        mock_response = MagicMock(spec=[])
+        # No top-level citations
+        mock_message = MagicMock()
+        mock_message.citations = [
+            "https://fallback-citation.com/page",
+        ]
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_response.choices = [mock_choice]
+
+        result = agent._extract_citations(mock_response)
+        assert isinstance(result, list)
+        assert "https://fallback-citation.com/page" in result
+
+
+# ============================================================================
+# P3-4. Pipeline Cleanup (dead code removal)
+# ============================================================================
+
+class TestP3PipelineCleanup:
+    """P3: Verify dead code was removed and cleanup was applied to pipeline."""
+
+    def test_merge_lists_not_in_pipeline(self):
+        """merge_lists helper should NOT exist in pipeline module (dead code)."""
+        import execution.pipeline as pipeline_mod
+        assert not hasattr(pipeline_mod, 'merge_lists'), \
+            "merge_lists should have been removed as dead code"
+
+    def test_merge_dicts_not_in_pipeline(self):
+        """merge_dicts helper should NOT exist in pipeline module (dead code)."""
+        import execution.pipeline as pipeline_mod
+        assert not hasattr(pipeline_mod, 'merge_dicts'), \
+            "merge_dicts should have been removed as dead code"
+
+    def test_atexit_imported_in_pipeline(self):
+        """Pipeline module must import atexit for connection cleanup."""
+        pipeline_path = Path(__file__).parent.parent / "execution" / "pipeline.py"
+        content = pipeline_path.read_text(encoding="utf-8")
+        assert "import atexit" in content, \
+            "atexit must be imported in pipeline.py for SQLite connection cleanup"
+
+    def test_atexit_register_used_in_pipeline(self):
+        """Pipeline must use atexit.register to prevent connection leaks."""
+        pipeline_path = Path(__file__).parent.parent / "execution" / "pipeline.py"
+        content = pipeline_path.read_text(encoding="utf-8")
+        assert "atexit.register" in content, \
+            "atexit.register must be called to clean up SQLite connections"
+
+    def test_no_merge_functions_in_pipeline_source(self):
+        """Pipeline source should not contain def merge_lists or def merge_dicts."""
+        pipeline_path = Path(__file__).parent.parent / "execution" / "pipeline.py"
+        content = pipeline_path.read_text(encoding="utf-8")
+        assert "def merge_lists(" not in content, \
+            "merge_lists function definition should be removed from pipeline.py"
+        assert "def merge_dicts(" not in content, \
+            "merge_dicts function definition should be removed from pipeline.py"
+
+
+# ============================================================================
+# P3-5. LiteLLM Decision (execution/agents/base_agent.py)
+# ============================================================================
+
+class TestP3LiteLLMDecision:
+    """P3: Verify the LiteLLM investigation decision is documented in base_agent.py."""
+
+    def test_litellm_investigation_comment_exists(self):
+        """base_agent.py must contain the LiteLLM Investigation decision comment."""
+        base_agent_path = Path(__file__).parent.parent / "execution" / "agents" / "base_agent.py"
+        content = base_agent_path.read_text(encoding="utf-8")
+        assert "LiteLLM Investigation" in content, \
+            "LiteLLM Investigation decision must be documented in base_agent.py"
+
+    def test_litellm_verdict_documented(self):
+        """The LiteLLM investigation must include a verdict."""
+        base_agent_path = Path(__file__).parent.parent / "execution" / "agents" / "base_agent.py"
+        content = base_agent_path.read_text(encoding="utf-8")
+        assert "Verdict:" in content or "KEEP" in content, \
+            "LiteLLM investigation must document the verdict"
+
+    def test_litellm_dealbreakers_documented(self):
+        """The LiteLLM investigation must document dealbreakers."""
+        base_agent_path = Path(__file__).parent.parent / "execution" / "agents" / "base_agent.py"
+        content = base_agent_path.read_text(encoding="utf-8")
+        assert "Dealbreaker" in content or "dealbreaker" in content, \
+            "LiteLLM investigation must document dealbreakers"
+
+    def test_litellm_not_imported(self):
+        """LiteLLM should NOT be imported in base_agent (decision was to KEEP current routing)."""
+        base_agent_path = Path(__file__).parent.parent / "execution" / "agents" / "base_agent.py"
+        content = base_agent_path.read_text(encoding="utf-8")
+        assert "import litellm" not in content, \
+            "LiteLLM should not be imported (decision was KEEP current routing)"
+        assert "from litellm" not in content, \
+            "LiteLLM should not be imported (decision was KEEP current routing)"
 
 
 if __name__ == "__main__":

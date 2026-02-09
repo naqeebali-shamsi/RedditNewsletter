@@ -17,6 +17,8 @@ Usage:
 """
 
 import feedparser
+import logging
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -26,10 +28,18 @@ except ImportError:
     requests = None
 
 try:
+    import praw
+    _HAS_PRAW = True
+except ImportError:
+    _HAS_PRAW = False
+
+try:
     from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
     _has_tenacity = True
 except ImportError:
     _has_tenacity = False
+
+logger = logging.getLogger(__name__)
 
 from .base_source import (
     ContentSource,
@@ -126,27 +136,45 @@ class RedditSource(ContentSource):
         if since is None:
             since = int(time.time()) - (self.hours_lookback * 3600)
 
-        for subreddit in self.subreddits:
-            try:
-                raw_posts = self._fetch_subreddit_rss(subreddit)
+        # Try PRAW first when available and configured, fall back to RSS
+        used_praw = False
+        if self._praw_available():
+            logger.info("PRAW available — fetching via Reddit API")
+            per_sub_limit = limit or self.max_posts
+            raw_posts = self._fetch_via_praw(self.subreddits, per_sub_limit)
+            if raw_posts:
+                used_praw = True
                 for raw_post in raw_posts:
-                    # Filter by time
                     if raw_post.get("timestamp", 0) < since:
                         continue
-
                     item = self.normalize(raw_post)
                     all_items.append(item)
-
-                    # Check global limit
                     if limit and len(all_items) >= limit:
                         break
 
-            except Exception as e:
-                errors.append(f"{subreddit}: {str(e)}")
+        if not used_praw:
+            logger.info("Fetching via RSS feeds (PRAW not available or returned no data)")
+            for subreddit in self.subreddits:
+                try:
+                    raw_posts = self._fetch_subreddit_rss(subreddit)
+                    for raw_post in raw_posts:
+                        # Filter by time
+                        if raw_post.get("timestamp", 0) < since:
+                            continue
 
-            # Check global limit
-            if limit and len(all_items) >= limit:
-                break
+                        item = self.normalize(raw_post)
+                        all_items.append(item)
+
+                        # Check global limit
+                        if limit and len(all_items) >= limit:
+                            break
+
+                except Exception as e:
+                    errors.append(f"{subreddit}: {str(e)}")
+
+                # Check global limit
+                if limit and len(all_items) >= limit:
+                    break
 
         return FetchResult(
             items=all_items,
@@ -154,6 +182,69 @@ class RedditSource(ContentSource):
             error_message="; ".join(errors) if errors else None,
             items_fetched=len(all_items),
         )
+
+    def _praw_available(self) -> bool:
+        """Check if PRAW is installed and Reddit API credentials are configured."""
+        if not _HAS_PRAW:
+            return False
+        client_id = os.environ.get("REDDIT_CLIENT_ID")
+        client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
+        return bool(client_id and client_secret)
+
+    def _fetch_via_praw(
+        self, subreddits: List[str], limit: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch posts from subreddits using the PRAW Reddit API client.
+
+        Requires REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, and optionally
+        REDDIT_USER_AGENT environment variables.
+
+        Args:
+            subreddits: List of subreddit names to fetch from.
+            limit: Maximum posts to fetch per subreddit.
+
+        Returns:
+            List of raw post dictionaries in the same format as RSS fetch.
+        """
+        client_id = os.environ.get("REDDIT_CLIENT_ID")
+        client_secret = os.environ.get("REDDIT_CLIENT_SECRET")
+        user_agent = os.environ.get("REDDIT_USER_AGENT", self.user_agent)
+
+        if not client_id or not client_secret:
+            logger.warning("PRAW credentials missing; returning empty list")
+            return []
+
+        try:
+            reddit = praw.Reddit(
+                client_id=client_id,
+                client_secret=client_secret,
+                user_agent=user_agent,
+            )
+        except Exception as e:
+            logger.error("Failed to create PRAW Reddit instance: %s", e)
+            return []
+
+        posts: List[Dict[str, Any]] = []
+        for sub_name in subreddits:
+            try:
+                subreddit = reddit.subreddit(sub_name)
+                for submission in subreddit.hot(limit=limit):
+                    post = {
+                        "subreddit": sub_name,
+                        "title": submission.title or "",
+                        "url": f"https://www.reddit.com{submission.permalink}",
+                        "author": str(submission.author) if submission.author else "unknown",
+                        "content": submission.selftext or "",
+                        "timestamp": int(submission.created_utc),
+                        "upvotes": submission.score,
+                        "num_comments": submission.num_comments,
+                    }
+                    posts.append(post)
+            except Exception as e:
+                logger.error("PRAW error fetching r/%s: %s", sub_name, e)
+
+        return posts
 
     def _fetch_subreddit_rss(self, subreddit_name: str) -> List[Dict[str, Any]]:
         """

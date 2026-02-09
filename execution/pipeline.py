@@ -19,6 +19,7 @@ Usage:
     result = run_pipeline(pipeline, topic="AI News", source_content="...")
 """
 
+import atexit
 import os
 import sys
 import threading
@@ -59,21 +60,11 @@ PHASE_ESCALATE = "escalate"
 
 
 # ============================================================================
-# State Reducer Functions (for LangGraph state updates)
-# ============================================================================
-
-def merge_lists(left: list, right: list) -> list:
-    """Merge two lists, appending new items."""
-    return left + right
-
-
-def merge_dicts(left: dict, right: dict) -> dict:
-    """Merge two dicts, with right taking precedence."""
-    return {**left, **right}
-
-
-# ============================================================================
 # Per-Node Timeout Support (cross-platform, threading-based)
+#
+# LangGraph's add_node() supports retry_policy and cache_policy but does NOT
+# offer a native step_timeout parameter. This custom threading-based decorator
+# is the correct approach for per-node timeouts until LangGraph adds support.
 # ============================================================================
 
 class NodeTimeoutError(Exception):
@@ -186,7 +177,7 @@ def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
             if result:
                 research_facts = result.get("verified_facts", [])
-                research_sources = result.get("perplexity_citations", [])
+                research_sources = result.get("sources", result.get("perplexity_citations", []))
                 print(f"  Perplexity research: {len(research_facts)} facts found")
         except Exception as e:
             print(f"  Perplexity research failed: {e}")
@@ -854,6 +845,7 @@ def create_pipeline(checkpointer: Optional[SqliteSaver] = None) -> StateGraph:
             db_path = config.paths.TEMP_DIR / ".pipeline_checkpoints.db"
             db_path.parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(str(db_path), check_same_thread=False)
+            atexit.register(conn.close)  # Prevent SQLite connection leak on exit
             checkpointer = SqliteSaver(conn)
             print(f"  Checkpointing enabled: {db_path}")
         except Exception as e:
@@ -936,6 +928,7 @@ def create_pipeline_with_sqlite(db_path: str = ".ghostwriter_checkpoints.db") ->
     import sqlite3
 
     conn = sqlite3.connect(db_path, check_same_thread=False)
+    atexit.register(conn.close)  # Prevent SQLite connection leak on exit
     checkpointer = SqliteSaver(conn)
 
     return create_pipeline(checkpointer)
@@ -996,7 +989,10 @@ def run_pipeline(
     final_state = dict(initial_state)  # Start with copy of initial state
     for state in pipeline.stream(initial_state, config=config_dict):
         for node_name, node_state in state.items():
-            # Merge with special handling for list fields (append, don't replace)
+            # Manual merge with deduplication for list fields. LangGraph's
+            # Annotated reducers (e.g. operator.add) only append blindly and
+            # cannot deduplicate, so this custom loop is required to prevent
+            # duplicate error_messages and reviewer_feedback across iterations.
             for key, value in node_state.items():
                 if key == "error_messages" and isinstance(value, list):
                     existing = final_state.get("error_messages", [])

@@ -1944,9 +1944,9 @@ class TestP3HealthCheck:
         assert "structlog" in result["packages"]
         assert "numpy" in result["packages"]
 
-    def test_check_health_exported_from_utils_init(self):
-        """check_health should be importable from execution.utils."""
-        from execution.utils import check_health
+    def test_check_health_importable_from_health_module(self):
+        """check_health should be importable from execution.utils.health."""
+        from execution.utils.health import check_health
         assert callable(check_health)
 
 

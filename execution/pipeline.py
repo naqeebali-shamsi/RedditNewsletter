@@ -177,7 +177,11 @@ def research_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
             if result:
                 research_facts = result.get("verified_facts", [])
-                research_sources = result.get("sources", result.get("perplexity_citations", []))
+                raw_sources = result.get("sources", [])
+                if not raw_sources:
+                    raw_citations = result.get("perplexity_citations", [])
+                    raw_sources = [{"url": c, "provider": "perplexity"} for c in raw_citations]
+                research_sources = raw_sources
                 print(f"  Perplexity research: {len(research_facts)} facts found")
         except Exception as e:
             print(f"  Perplexity research failed: {e}")

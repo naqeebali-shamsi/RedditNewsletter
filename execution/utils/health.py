@@ -71,15 +71,15 @@ def _check_providers() -> dict:
 
 def _check_filesystem() -> dict:
     """Check required directories exist and are writable."""
-    dirs_to_check = [".tmp", "output"]
+    project_root = Path(__file__).resolve().parent.parent.parent
+    dirs_to_check = [project_root / ".tmp", project_root / "output"]
     issues = []
-    for d in dirs_to_check:
-        p = Path(d)
+    for p in dirs_to_check:
         if not p.exists():
             try:
                 p.mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                issues.append(f"Cannot create {d}: {e}")
+                issues.append(f"Cannot create {p.name}: {e}")
     if issues:
         return {"status": "degraded", "detail": "; ".join(issues)}
     return {"status": "healthy", "detail": "All directories accessible"}

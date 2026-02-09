@@ -19,6 +19,7 @@ from typing import Dict, List, Optional
 from google import genai
 from google.genai import types
 from execution.utils.json_parser import extract_json_from_llm
+from execution.config import config
 from execution.utils.research_templates import (
     generate_writer_constraints,
     generate_revision_instructions,
@@ -71,12 +72,15 @@ OUTPUT: Return JSON with:
 - suspicious_claims: [{claim, red_flag}]
 """
 
-    def __init__(self, model: str = "gemini-3-flash-preview"):
+    def __init__(self, model: str = None):
+        if model is None:
+            model = config.models.GEMINI_RESEARCH_MODEL
         """
         Initialize the Gemini research agent.
 
         Args:
-            model: Gemini model to use (must support google_search tool)
+            model: Gemini model to use (must support google_search tool).
+                   Defaults to config.models.GEMINI_RESEARCH_MODEL.
         """
         # Initialize Gemini client
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")

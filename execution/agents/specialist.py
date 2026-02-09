@@ -1,10 +1,13 @@
 from .base_agent import BaseAgent
+from execution.config import config
 
 class SpecialistAgent(BaseAgent):
     """
     A lightweight agent designed to enforce a SINGLE specific constraint.
     """
-    def __init__(self, constraint_name, constraint_instruction, model="llama-3.1-8b-instant"):
+    def __init__(self, constraint_name, constraint_instruction, model=None):
+        if model is None:
+            model = config.models.DEFAULT_FAST_MODEL
         super().__init__(
             role=f"Specialist: {constraint_name}",
             persona=f"You are a specialized editor focused ONLY on: {constraint_name}.",

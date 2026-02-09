@@ -11,12 +11,10 @@ Usage:
 
 import os
 from pathlib import Path
-from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
-from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+from pydantic import BaseModel, Field, computed_field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _get_project_root() -> Path:
@@ -25,11 +23,13 @@ def _get_project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-@dataclass
-class PathConfig:
+class PathConfig(BaseModel):
     """Path configuration - all paths derived from PROJECT_ROOT."""
-    PROJECT_ROOT: Path = field(default_factory=_get_project_root)
+    PROJECT_ROOT: Path = Field(default_factory=_get_project_root)
 
+    model_config = {"arbitrary_types_allowed": True}
+
+    @computed_field
     @property
     def OUTPUT_DIR(self) -> Path:
         """Output directory for drafts and articles."""
@@ -38,6 +38,7 @@ class PathConfig:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    @computed_field
     @property
     def TEMP_DIR(self) -> Path:
         """Temporary directory for intermediate files."""
@@ -46,6 +47,7 @@ class PathConfig:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    @computed_field
     @property
     def LOGS_DIR(self) -> Path:
         """Logs directory."""
@@ -53,44 +55,34 @@ class PathConfig:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
+    @computed_field
     @property
     def DIRECTIVES_DIR(self) -> Path:
         """Directives directory."""
         return self.PROJECT_ROOT / "directives"
 
+    @computed_field
     @property
     def EXECUTION_DIR(self) -> Path:
         """Execution scripts directory."""
         return self.PROJECT_ROOT / "execution"
 
 
-@dataclass
-class APIConfig:
+class APIConfig(BaseSettings):
     """API keys and endpoints."""
 
-    @property
-    def GROQ_API_KEY(self) -> Optional[str]:
-        return os.getenv("GROQ_API_KEY")
+    GROQ_API_KEY: Optional[str] = None
+    GOOGLE_API_KEY: Optional[str] = None
+    PERPLEXITY_API_KEY: Optional[str] = None
+    ANTHROPIC_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
+    GMAIL_CREDENTIALS_PATH: Optional[str] = None
 
-    @property
-    def GOOGLE_API_KEY(self) -> Optional[str]:
-        return os.getenv("GOOGLE_API_KEY")
-
-    @property
-    def PERPLEXITY_API_KEY(self) -> Optional[str]:
-        return os.getenv("PERPLEXITY_API_KEY")
-
-    @property
-    def ANTHROPIC_API_KEY(self) -> Optional[str]:
-        return os.getenv("ANTHROPIC_API_KEY")
-
-    @property
-    def OPENAI_API_KEY(self) -> Optional[str]:
-        return os.getenv("OPENAI_API_KEY")
-
-    @property
-    def GMAIL_CREDENTIALS_PATH(self) -> Optional[str]:
-        return os.getenv("GMAIL_CREDENTIALS_PATH")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     def has_key(self, provider: str) -> bool:
         """Check if API key is available for provider."""
@@ -107,8 +99,7 @@ class APIConfig:
         return bool(key_map.get(provider.lower()))
 
 
-@dataclass
-class QualityConfig:
+class QualityConfig(BaseModel):
     """Quality gate configuration."""
 
     # Score thresholds
@@ -130,7 +121,7 @@ class QualityConfig:
     MAX_UNVERIFIED_CLAIMS: int = 1
 
     # Escalation reasons (for logging and UI)
-    ESCALATION_REASONS = {
+    ESCALATION_REASONS: Dict[str, str] = Field(default={
         "MAX_ITERATIONS": "Maximum revision iterations reached without passing quality gate",
         "FALSE_CLAIMS": "Content contains verified false claims that cannot be auto-corrected",
         "CRITICAL_FAILURE": "Critical editorial failure detected (WSJ showstopper)",
@@ -138,32 +129,35 @@ class QualityConfig:
         "VOICE_VIOLATION": "Persistent voice/attribution violations",
         "KILL_PHRASE": "Kill phrase detected that requires human judgment",
         "VERIFICATION_FAILED": "Fact verification system failed - manual review needed"
-    }
+    })
 
     # Auto-escalation triggers
     FALSE_CLAIM_AUTO_ESCALATE: bool = True
     WSJ_FAILURE_AUTO_ESCALATE: bool = True
-    MIN_SCORE_FOR_AUTO_APPROVE: float = 8.0  # Score required for auto-approval without human review
+    MIN_SCORE_FOR_AUTO_APPROVE: float = 8.0
 
 
-@dataclass
-class ModelConfig:
+class ModelConfig(BaseSettings):
     """Model selection configuration."""
 
     # Default models by task
-    DEFAULT_WRITER_MODEL: str = field(
-        default_factory=lambda: os.getenv("DEFAULT_WRITER_MODEL", "llama-3.3-70b-versatile")
-    )
-    DEFAULT_CRITIC_MODEL: str = field(
-        default_factory=lambda: os.getenv("DEFAULT_CRITIC_MODEL", "llama-3.3-70b-versatile")
-    )
-    DEFAULT_EDITOR_MODEL: str = field(
-        default_factory=lambda: os.getenv("DEFAULT_EDITOR_MODEL", "llama-3.3-70b-versatile")
-    )
+    DEFAULT_WRITER_MODEL: str = "llama-3.3-70b-versatile"
+    DEFAULT_CRITIC_MODEL: str = "llama-3.3-70b-versatile"
+    DEFAULT_EDITOR_MODEL: str = "llama-3.3-70b-versatile"
+
+    # Fast/lightweight model for specialists and simple tasks
+    DEFAULT_FAST_MODEL: str = "llama-3.1-8b-instant"
+
+    # Base model used as fallback across agents
+    DEFAULT_BASE_MODEL: str = "gemini-2.0-flash-exp"
 
     # Research models (with web search capability)
     RESEARCH_MODEL_PRIMARY: str = "gemini-2.0-flash"
     RESEARCH_MODEL_FALLBACK: str = "sonar-pro"
+    GEMINI_RESEARCH_MODEL: str = "gemini-3-flash-preview"
+
+    # Content evaluation model
+    CONTENT_EVAL_MODEL: str = "gemini-1.5-flash"
 
     # Multi-model panel configuration
     ETHICS_REVIEWER_MODEL: str = "claude-sonnet-4-20250514"
@@ -171,54 +165,63 @@ class ModelConfig:
     FACT_REVIEWER_MODEL: str = "gemini-2.0-flash"
 
     # Cost tiers
-    TIER_SIMPLE: Dict[str, str] = field(default_factory=lambda: {
+    TIER_SIMPLE: Dict[str, str] = Field(default={
         "anthropic": "claude-3-haiku-20240307",
         "openai": "gpt-4o-mini",
         "google": "gemini-2.0-flash",
     })
-    TIER_MEDIUM: Dict[str, str] = field(default_factory=lambda: {
+    TIER_MEDIUM: Dict[str, str] = Field(default={
         "anthropic": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
         "google": "gemini-2.0-pro",
     })
-    TIER_COMPLEX: Dict[str, str] = field(default_factory=lambda: {
+    TIER_COMPLEX: Dict[str, str] = Field(default={
         "anthropic": "claude-opus-4-20250514",
         "openai": "gpt-4",
         "google": "gemini-2.0-ultra",
     })
 
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-@dataclass
-class VoiceConfig:
+
+class VoiceConfig(BaseModel):
     """Voice and style configuration."""
 
     # Voice types
-    VOICE_EXTERNAL: str = "Journalist Observer"  # Reporting on others' work
-    VOICE_INTERNAL: str = "Practitioner Owner"   # Sharing own experience
+    VOICE_EXTERNAL: str = "Journalist Observer"
+    VOICE_INTERNAL: str = "Practitioner Owner"
 
     # Publication styles
-    STYLE_WSJ: str = "wsj"      # Four Showstoppers, nut graph
-    STYLE_BBC: str = "bbc"      # Impartial, assertive
-    STYLE_CBC: str = "cbc"      # Intimate, conversational
-    STYLE_CNN: str = "cnn"      # Facts First
-    STYLE_MEDIUM: str = "medium"  # Engaging, hook-driven
+    STYLE_WSJ: str = "wsj"
+    STYLE_BBC: str = "bbc"
+    STYLE_CBC: str = "cbc"
+    STYLE_CNN: str = "cnn"
+    STYLE_MEDIUM: str = "medium"
 
 
-@dataclass
-class GhostWriterConfig:
+class GhostWriterConfig(BaseSettings):
     """Main configuration class combining all config sections."""
 
-    paths: PathConfig = field(default_factory=PathConfig)
-    api: APIConfig = field(default_factory=APIConfig)
-    quality: QualityConfig = field(default_factory=QualityConfig)
-    models: ModelConfig = field(default_factory=ModelConfig)
-    voice: VoiceConfig = field(default_factory=VoiceConfig)
+    paths: PathConfig = Field(default_factory=PathConfig)
+    api: APIConfig = Field(default_factory=APIConfig)
+    quality: QualityConfig = Field(default_factory=QualityConfig)
+    models: ModelConfig = Field(default_factory=ModelConfig)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
 
     # Application metadata
     APP_NAME: str = "GhostWriter"
     VERSION: str = "2.0.0"
-    ENVIRONMENT: str = field(
-        default_factory=lambda: os.getenv("GHOSTWRITER_ENV", "development")
+    ENVIRONMENT: str = Field(default="development", alias="GHOSTWRITER_ENV")
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
     )
 
     def validate(self) -> Dict[str, Any]:

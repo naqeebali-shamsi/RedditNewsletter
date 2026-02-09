@@ -24,6 +24,11 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except ImportError:
+    RecursiveCharacterTextSplitter = None
+
 # Import config for thresholds
 try:
     from execution.config import config
@@ -57,6 +62,55 @@ STOP_WORDS = frozenset({
     "well", "really", "actually", "basically", "certainly", "definitely", "probably",
     "simply", "truly",
 })
+
+# Sentence boundary detection that handles abbreviations, decimals, and URLs.
+# Common abbreviations that should NOT be treated as sentence endings.
+_ABBREVIATIONS = frozenset({
+    "dr", "mr", "mrs", "ms", "prof", "sr", "jr", "vs", "etc",
+    "approx", "dept", "est", "govt", "inc", "corp", "ltd",
+    "assn", "vol", "no", "fig", "eq", "gen", "sgt", "col",
+    "i.e", "e.g", "u.s", "u.k",
+})
+
+# Regex that finds candidate sentence breaks: punctuation + space + capital letter
+_CANDIDATE_BREAK_RE = re.compile(r'([.!?])\s+(?=[A-Z])')
+
+
+def _split_sentences(text: str) -> list:
+    """Split text into sentences, respecting abbreviations and decimals.
+
+    Uses a two-pass approach: first find candidate breaks with a simple regex,
+    then filter out false positives from abbreviations and decimal numbers.
+    """
+    sentences = []
+    last = 0
+
+    for m in _CANDIDATE_BREAK_RE.finditer(text):
+        break_pos = m.end()       # position right after the space
+        dot_pos = m.start()       # position of the punctuation mark
+
+        # Skip if preceded by a digit (decimal like 3.14, version like v2.0)
+        if dot_pos > 0 and text[dot_pos - 1].isdigit() and m.group(1) == '.':
+            continue
+
+        # Skip if the word before the dot is an abbreviation
+        word_before = text[max(0, dot_pos - 10):dot_pos].split()
+        if word_before:
+            token = word_before[-1].lower().rstrip('.')
+            if token in _ABBREVIATIONS:
+                continue
+
+        sentence = text[last:break_pos].strip()
+        if sentence:
+            sentences.append(sentence)
+        last = break_pos
+
+    # Remaining text
+    tail = text[last:].strip()
+    if tail:
+        sentences.append(tail)
+
+    return sentences
 
 
 class VerificationStatus(Enum):
@@ -393,7 +447,7 @@ If this exact quote cannot be found published ANYWHERE online, it is almost cert
                 class GroqWrapper:
                     def __init__(self, client):
                         self.client = client
-                        self.model = "llama-3.3-70b-versatile"
+                        self.model = config.models.DEFAULT_WRITER_MODEL if config else "llama-3.3-70b-versatile"
                 self.providers.append(("groq", GroqWrapper(groq_client)))
                 print("Groq provider initialized (fallback for claim extraction)")
         except Exception as e:
@@ -641,43 +695,35 @@ If this exact quote cannot be found published ANYWHERE online, it is almost cert
         print("All providers failed for claim extraction on chunk")
         return []
 
+    # Reusable text splitter for content chunking (None if langchain not installed)
+    _text_splitter = (
+        RecursiveCharacterTextSplitter(
+            chunk_size=12000, chunk_overlap=500,
+            separators=["\n\n", "\n", ". ", " "],
+        ) if RecursiveCharacterTextSplitter else None
+    )
+
     def _split_into_chunks(self, content: str, max_size: int, overlap: int = 500) -> List[str]:
-        """Split content into overlapping chunks at paragraph boundaries."""
-        paragraphs = content.split("\n\n")
+        """Split content into overlapping chunks. Uses langchain if available, else simple fallback."""
+        if RecursiveCharacterTextSplitter is not None:
+            splitter = self._text_splitter
+            if max_size != 12000 or overlap != 500:
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=max_size, chunk_overlap=overlap,
+                    separators=["\n\n", "\n", ". ", " "],
+                )
+            chunks = splitter.split_text(content)
+            return chunks if chunks else [content]
+        # Fallback: simple character-based splitting with overlap
+        if len(content) <= max_size:
+            return [content]
         chunks = []
-        current_chunk = []
-        current_size = 0
-
-        for para in paragraphs:
-            para_len = len(para)
-            if current_size + para_len > max_size and current_chunk:
-                # Finalize current chunk
-                chunks.append("\n\n".join(current_chunk))
-                # Start new chunk with overlap from end of previous
-                overlap_text = "\n\n".join(current_chunk)
-                if len(overlap_text) > overlap:
-                    # Keep last ~overlap chars worth of paragraphs
-                    overlap_paras = []
-                    overlap_size = 0
-                    for p in reversed(current_chunk):
-                        if overlap_size + len(p) > overlap:
-                            break
-                        overlap_paras.insert(0, p)
-                        overlap_size += len(p)
-                    current_chunk = overlap_paras
-                    current_size = overlap_size
-                else:
-                    current_chunk = []
-                    current_size = 0
-
-            current_chunk.append(para)
-            current_size += para_len
-
-        # Don't forget the last chunk
-        if current_chunk:
-            chunks.append("\n\n".join(current_chunk))
-
-        return chunks if chunks else [content]
+        start = 0
+        while start < len(content):
+            end = start + max_size
+            chunks.append(content[start:end])
+            start = end - overlap
+        return chunks
 
     def _deduplicate_claims(self, claims: List[Claim]) -> List[Claim]:
         """Remove near-duplicate claims by comparing significant words."""
@@ -753,6 +799,34 @@ If this exact quote cannot be found published ANYWHERE online, it is almost cert
     # Fabrication Detection: Regex-based scan + targeted verification
     # ---------------------------------------------------------------
 
+    @staticmethod
+    def _extract_sentence_context(content: str, match_start: int, match_end: int) -> str:
+        """Extract the sentence containing a regex match using proper boundary detection.
+
+        Uses the module-level _split_sentences() so abbreviations like "Dr.",
+        decimals like "3.14", and URLs are not treated as sentence boundaries.
+        """
+        # Find a reasonable window around the match to avoid splitting the entire document
+        window_start = max(0, match_start - 500)
+        window_end = min(len(content), match_end + 500)
+        window = content[window_start:window_end]
+        offset = match_start - window_start
+
+        sentences = _split_sentences(window)
+        # Find the sentence that contains the match position
+        pos = 0
+        for sentence in sentences:
+            idx = window.find(sentence, pos)
+            if idx == -1:
+                continue
+            sent_end = idx + len(sentence)
+            if idx <= offset < sent_end:
+                return sentence.strip()
+            pos = sent_end
+
+        # Fallback: return text around the match
+        return content[max(0, match_start - 100):min(len(content), match_end + 100)].strip()
+
     def _scan_for_fabrication_risks(self, content: str) -> List[Claim]:
         """
         Regex-based scan for high-risk hallucination patterns.
@@ -777,12 +851,8 @@ If this exact quote cannot be found published ANYWHERE online, it is almost cert
                     continue
                 seen_names.add(name)
 
-                # Get sentence context
-                start = max(0, content.rfind('.', 0, match.start()) + 1)
-                end = content.find('.', match.end())
-                if end == -1:
-                    end = min(len(content), match.end() + 200)
-                context = content[start:end + 1].strip()
+                # Get sentence context using proper sentence boundary detection
+                context = self._extract_sentence_context(content, match.start(), match.end())
 
                 high_risk_claims.append(Claim(
                     text=f"Person exists: {name}",
@@ -829,11 +899,7 @@ If this exact quote cannot be found published ANYWHERE online, it is almost cert
             if len(institution) < 3:
                 continue
 
-            start = max(0, content.rfind('.', 0, match.start()) + 1)
-            end = content.find('.', match.end())
-            if end == -1:
-                end = min(len(content), match.end() + 200)
-            context = content[start:end + 1].strip()
+            context = self._extract_sentence_context(content, match.start(), match.end())
 
             high_risk_claims.append(Claim(
                 text=f"Research attribution: {institution}",
@@ -844,13 +910,25 @@ If this exact quote cannot be found published ANYWHERE online, it is almost cert
 
         return high_risk_claims
 
+    @staticmethod
+    def _word_similarity(text_a: str, text_b: str) -> float:
+        """Compute containment similarity between two texts (ignoring stop words).
+
+        Returns the fraction of the smaller word-set that overlaps with the larger,
+        giving a length-independent similarity score between 0.0 and 1.0.
+        """
+        words_a = {w.lower() for w in text_a.split() if w.lower() not in STOP_WORDS}
+        words_b = {w.lower() for w in text_b.split() if w.lower() not in STOP_WORDS}
+        if not words_a or not words_b:
+            return 0.0
+        intersection = words_a & words_b
+        return len(intersection) / min(len(words_a), len(words_b))
+
     def _is_claim_already_covered(self, new_claim: Claim, existing_claims: List[Claim]) -> bool:
         """Check if a fabrication-scan claim overlaps with an already-extracted claim."""
-        new_words = set(new_claim.text.lower().split()) | set(new_claim.context.lower().split()[:20])
+        combined_new = new_claim.text + " " + " ".join(new_claim.context.split()[:20])
         for existing in existing_claims:
-            existing_words = set(existing.text.lower().split())
-            overlap = len(new_words & existing_words)
-            if overlap >= 3:  # Significant overlap
+            if self._word_similarity(combined_new, existing.text) >= 0.5:
                 return True
         return False
 

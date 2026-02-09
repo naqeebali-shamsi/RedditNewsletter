@@ -17,31 +17,30 @@ import json
 import hashlib
 import uuid
 from datetime import datetime, timezone
-from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 
+from pydantic import BaseModel, Field
 
-@dataclass
-class ProvenanceAction:
+
+class ProvenanceAction(BaseModel):
     """Single action in the provenance chain."""
     action_type: str  # "created", "modified", "verified", "reviewed", "approved"
     agent: str  # Agent name or "human"
     timestamp: str
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: Dict[str, Any] = Field(default_factory=dict)
     model: Optional[str] = None
     confidence: Optional[float] = None
 
 
-@dataclass
-class ContentProvenance:
+class ContentProvenance(BaseModel):
     """Full provenance record for generated content."""
     # Identifiers
     content_id: str
     content_hash: str  # SHA-256 of final content
 
     # Creation metadata
-    created_at: str
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     created_by: str = "GhostWriter AI Pipeline"
     version: str = "3.0"
 
@@ -62,10 +61,10 @@ class ContentProvenance:
     wsj_checklist_passed: bool = False
 
     # Models used
-    models_used: List[str] = field(default_factory=list)
+    models_used: List[str] = Field(default_factory=list)
 
     # Action history
-    actions: List[ProvenanceAction] = field(default_factory=list)
+    actions: List[ProvenanceAction] = Field(default_factory=list)
 
     # Human involvement
     human_reviewed: bool = False
@@ -83,29 +82,8 @@ class ContentProvenance:
         ))
 
     def to_dict(self) -> Dict:
-        """Convert to dictionary."""
-        return {
-            "content_id": self.content_id,
-            "content_hash": self.content_hash,
-            "created_at": self.created_at,
-            "created_by": self.created_by,
-            "version": self.version,
-            "source_type": self.source_type,
-            "source_url": self.source_url,
-            "source_title": self.source_title,
-            "topic": self.topic,
-            "platform": self.platform,
-            "word_count": self.word_count,
-            "quality_score": self.quality_score,
-            "fact_verification_passed": self.fact_verification_passed,
-            "verified_claims_count": self.verified_claims_count,
-            "wsj_checklist_passed": self.wsj_checklist_passed,
-            "models_used": self.models_used,
-            "human_reviewed": self.human_reviewed,
-            "human_reviewer": self.human_reviewer,
-            "human_review_timestamp": self.human_review_timestamp,
-            "actions": [asdict(a) for a in self.actions]
-        }
+        """Convert to dictionary (backward-compat alias for model_dump)."""
+        return self.model_dump()
 
 
 def generate_content_hash(content: str) -> str:

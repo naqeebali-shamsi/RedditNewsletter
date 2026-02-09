@@ -55,7 +55,41 @@ class LLMNotConfiguredError(LLMError):
     pass
 
 
-# Transient error types worth retrying (rate limits, timeouts, server errors)
+# ---------------------------------------------------------------------------
+# Transient error detection (typed exceptions + string fallback)
+# ---------------------------------------------------------------------------
+
+_TRANSIENT_TYPES: tuple | None = None  # Lazy-initialised on first call
+
+
+def _build_transient_types() -> tuple:
+    """Collect typed transient exceptions from installed provider SDKs."""
+    types = []
+    try:
+        import openai
+        types.extend([openai.RateLimitError, openai.APITimeoutError,
+                      openai.APIConnectionError, openai.InternalServerError])
+    except (ImportError, AttributeError):
+        pass
+    try:
+        from google.api_core.exceptions import (
+            ResourceExhausted, DeadlineExceeded, ServiceUnavailable,
+            TooManyRequests, GatewayTimeout,
+        )
+        types.extend([ResourceExhausted, DeadlineExceeded,
+                      ServiceUnavailable, TooManyRequests, GatewayTimeout])
+    except (ImportError, AttributeError):
+        pass
+    try:
+        import groq
+        types.extend([groq.RateLimitError, groq.APITimeoutError,
+                      groq.APIConnectionError, groq.InternalServerError])
+    except (ImportError, AttributeError):
+        pass
+    return tuple(types)
+
+
+# String-based fallback patterns for providers without typed exceptions
 _TRANSIENT_SUBSTRINGS = [
     "rate limit",
     "rate_limit",
@@ -72,13 +106,29 @@ _TRANSIENT_SUBSTRINGS = [
 
 
 def _is_transient(exc: Exception) -> bool:
-    """Return True if the exception looks transient and worth retrying."""
+    """Check if an exception is transient and worth retrying.
+
+    Prefers typed exception checks from provider SDKs.
+    Falls back to string matching for unknown exception types.
+    """
+    global _TRANSIENT_TYPES
+    if _TRANSIENT_TYPES is None:
+        _TRANSIENT_TYPES = _build_transient_types()
+
+    # Type-based check (preferred — robust across message format changes)
+    if _TRANSIENT_TYPES and isinstance(exc, _TRANSIENT_TYPES):
+        return True
+
+    # String-based fallback for unknown exception types
     msg = str(exc).lower()
     return any(s in msg for s in _TRANSIENT_SUBSTRINGS)
 
 
 class BaseAgent:
-    def __init__(self, role, persona, model="gemini-2.0-flash-exp", provider=None):
+    def __init__(self, role, persona, model=None, provider=None):
+        if model is None:
+            from execution.config import config
+            model = config.models.DEFAULT_BASE_MODEL
         self.role = role
         self.persona = persona
         self.model_name = model

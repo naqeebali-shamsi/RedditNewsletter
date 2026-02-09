@@ -1190,37 +1190,111 @@ def copy_to_clipboard(text: str, button_text: str = "Copy", key: str = "copy_btn
     ''', height=50)
 
 
-class PipelinePhaseError(Exception):
-    """Raised when a critical pipeline phase fails."""
-    def __init__(self, phase: str, message: str):
-        self.phase = phase
-        super().__init__(f"[{phase}] {message}")
+from execution.exceptions import (
+    PipelineError,
+    ResearchError,
+    WriterError,
+    VerificationError,
+    QualityGateError,
+    StyleError,
+)
 
 
-def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
+def _phase_research_topic(progress_callback, status_callback, provided_topic=None):
     """
-    Run the COMPLETE automated pipeline:
-    1. Topic Research Agent selects best topic
-    2. Fact Research via Perplexity (grounded web search)
-    3. Full article generation with all agents
-    4. Draft Verification via Perplexity
-    5. Quality Gate (adversarial review loop)
-    6. Visual generation
+    Phase 1: Select or research a topic. Returns dict with topic info and source metadata.
 
-    Returns:
-        dict with content, filepath, topic info, images, quality_result, fact_sheet
+    Raises ResearchError on failure.
     """
     from execution.agents.topic_researcher import TopicResearchAgent
-    from execution.agents.editor import EditorAgent
-    from execution.agents.critic import CriticAgent
-    from execution.agents.writer import WriterAgent
-    from execution.agents.specialist import SpecialistAgent
-    from execution.agents.visuals import VisualsAgent
-    from execution.quality_gate import QualityGate
 
-    # Optional: Perplexity for grounded fact research (if API key available)
+    data_source = st.session_state.get('data_source', 'reddit')
+    source_type = "internal" if data_source == "github" else "external"
+
+    try:
+        if provided_topic:
+            status_callback(f"Using provided topic: {provided_topic[:30]}...")
+            progress_callback(0.05)
+
+            topic_agent = TopicResearchAgent()
+            topics = [{'title': provided_topic, 'subreddit': 'custom'}]
+            selected = topic_agent.analyze_and_select(topics)
+
+        elif data_source == 'github':
+            from execution.agents.commit_analyzer import CommitAnalysisAgent
+            from execution.fetch_github import fetch_repo_commits
+
+            status_callback("Analyzing GitHub commits for topics...")
+            progress_callback(0.02)
+
+            commit_agent = CommitAnalysisAgent()
+            custom_repos = st.session_state.get('custom_github_repos')
+
+            if custom_repos:
+                status_callback(f"Fetching from {len(custom_repos)} custom repo(s)...")
+                progress_callback(0.04)
+
+                all_commits = []
+                for repo_str in custom_repos[:5]:
+                    if "/" in repo_str:
+                        owner, repo = repo_str.split("/", 1)
+                        commits = fetch_repo_commits(owner, repo, max_commits=20, since_hours=168)
+                        all_commits.extend(commits)
+
+                status_callback("Extracting themes from commit activity...")
+                progress_callback(0.08)
+
+                if all_commits:
+                    selected = commit_agent.research_github_topics(all_commits)
+                else:
+                    selected = commit_agent.research_github_topics_from_db()
+            else:
+                status_callback("Fetching commits from database...")
+                progress_callback(0.05)
+                status_callback("Extracting themes from commit activity...")
+                progress_callback(0.08)
+                selected = commit_agent.research_github_topics_from_db()
+
+        else:
+            status_callback("Scanning Reddit for trending topics...")
+            progress_callback(0.02)
+
+            topic_agent = TopicResearchAgent()
+
+            status_callback("Fetching from AI/ML subreddits...")
+            progress_callback(0.04)
+            topics = topic_agent.fetch_trending_topics()
+
+            status_callback("Analyzing topics for positioning fit...")
+            progress_callback(0.08)
+            selected = topic_agent.analyze_and_select(topics)
+
+    except Exception as e:
+        raise ResearchError(f"Topic research failed: {e}") from e
+
+    status_callback("Topic selected")
+    progress_callback(0.10)
+
+    return {
+        'topic': selected['title'],
+        'topic_reasoning': selected.get('reasoning', ''),
+        'topic_angle': selected.get('angle', ''),
+        'source_type': source_type,
+        'selected': selected,
+    }
+
+
+def _phase_research_facts(topic, selected, progress_callback, status_callback):
+    """
+    Phase 1.5: Fact research via Perplexity. Returns dict with fact_sheet and writer_constraints.
+
+    Non-fatal: returns empty results if Perplexity unavailable.
+    """
     perplexity_available = bool(os.getenv("PERPLEXITY_API_KEY"))
     fact_researcher = None
+    fact_sheet = None
+    writer_constraints = ""
+
     if perplexity_available:
         try:
             from execution.agents.perplexity_researcher import PerplexityResearchAgent
@@ -1229,178 +1303,90 @@ def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
             print(f"Perplexity init failed: {e}")
             perplexity_available = False
 
-    output_dir = OUTPUT_DIR
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # PHASE 1: TOPIC RESEARCH (0-10%)
-    data_source = st.session_state.get('data_source', 'reddit')
-
-    # CRITICAL: Determine voice type based on data source
-    # Reddit/external = observer voice (NEVER claim ownership)
-    # GitHub/internal = practitioner voice (CAN claim ownership)
-    source_type = "internal" if data_source == "github" else "external"
-
-    if provided_topic:
-        status_callback(f"Using provided topic: {provided_topic[:30]}...")
-        progress_callback(0.05)
-        
-        topic_agent = TopicResearchAgent()
-        # Use provided topic but still let agent find an angle
-        topics = [{'title': provided_topic, 'subreddit': 'custom'}]
-        selected = topic_agent.analyze_and_select(topics)
-        
-        topic = selected['title']
-        topic_reasoning = selected.get('reasoning', '')
-        topic_angle = selected.get('angle', '')
-
-    elif data_source == 'github':
-        # GitHub commit analysis
-        from execution.agents.commit_analyzer import CommitAnalysisAgent
-        from execution.fetch_github import fetch_repo_commits
-
-        status_callback("Analyzing GitHub commits for topics...")
-        progress_callback(0.02)
-
-        commit_agent = CommitAnalysisAgent()
-
-        # Check for custom repos from Settings
-        custom_repos = st.session_state.get('custom_github_repos')
-
-        if custom_repos:
-            # Fetch from user's custom repos
-            status_callback(f"Fetching from {len(custom_repos)} custom repo(s)...")
-            progress_callback(0.04)
-
-            all_commits = []
-            for repo_str in custom_repos[:5]:  # Limit to 5 repos
-                if "/" in repo_str:
-                    owner, repo = repo_str.split("/", 1)
-                    commits = fetch_repo_commits(owner, repo, max_commits=20, since_hours=168)
-                    all_commits.extend(commits)
-
-            status_callback("Extracting themes from commit activity...")
-            progress_callback(0.08)
-
-            if all_commits:
-                selected = commit_agent.research_github_topics(all_commits)
-            else:
-                selected = commit_agent.research_github_topics_from_db()
-        else:
-            # Use default repos from database
-            status_callback("Fetching commits from database...")
-            progress_callback(0.05)
-
-            status_callback("Extracting themes from commit activity...")
-            progress_callback(0.08)
-            selected = commit_agent.research_github_topics_from_db()
-
-        topic = selected['title']
-        topic_reasoning = selected.get('reasoning', '')
-        topic_angle = selected.get('angle', '')
-
-    else:
-        # Reddit topic research (default)
-        status_callback("Scanning Reddit for trending topics...")
-        progress_callback(0.02)
-
-        topic_agent = TopicResearchAgent()
-
-        status_callback("Fetching from AI/ML subreddits...")
-        progress_callback(0.04)
-        topics = topic_agent.fetch_trending_topics()
-
-        status_callback("Analyzing topics for positioning fit...")
-        progress_callback(0.08)
-        selected = topic_agent.analyze_and_select(topics)
-
-        topic = selected['title']
-        topic_reasoning = selected.get('reasoning', '')
-        topic_angle = selected.get('angle', '')
-
-    status_callback(f"Topic selected")
-    progress_callback(0.10)
-
-    # PHASE 1.5: FACT RESEARCH via Perplexity (10-18%)
-    # Gather verified facts BEFORE writing to prevent hallucination
-    fact_sheet = None
-    writer_constraints = ""
-
     if perplexity_available and fact_researcher:
         status_callback("Researching facts via Perplexity...")
         progress_callback(0.12)
 
         try:
-            # Get source content for context (if available)
             source_content = selected.get('content', '') or selected.get('body', '')
-
             fact_sheet = fact_researcher.research_topic(
                 topic=topic,
                 source_content=source_content[:3000] if source_content else ""
             )
-
-            # Extract writer constraints from fact sheet
             writer_constraints = fact_sheet.get('writer_constraints', '')
 
             verified_count = len(fact_sheet.get('verified_facts', []))
             unverified_count = len(fact_sheet.get('unverified_claims', []))
             status_callback(f"Found {verified_count} verified facts, {unverified_count} flagged claims")
-
         except Exception as e:
             print(f"Fact research failed: {e}")
             status_callback("Fact research skipped (continuing)")
-
-        progress_callback(0.18)
     else:
         status_callback("Skipping fact research (no Perplexity API key)")
-        progress_callback(0.18)
 
-    # PHASE 2: AGENT INITIALIZATION (18-22%)
+    progress_callback(0.18)
+
+    return {
+        'fact_sheet': fact_sheet,
+        'writer_constraints': writer_constraints,
+        'fact_researcher': fact_researcher,
+        'perplexity_available': perplexity_available,
+    }
+
+
+def _phase_generate_draft(topic, topic_angle, writer_constraints, source_type, progress_callback, status_callback):
+    """
+    Phases 2-5: Initialize agents, create outline, refine, and generate draft.
+
+    Raises WriterError if outline or draft generation fails fatally.
+    """
+    from execution.agents.editor import EditorAgent
+    from execution.agents.critic import CriticAgent
+    from execution.agents.writer import WriterAgent
+
+    # Agent initialization (18-22%)
     status_callback("Initializing agents...")
     progress_callback(0.20)
 
     editor = EditorAgent()
     critic = CriticAgent()
     writer = WriterAgent()
-    visuals = VisualsAgent()
     progress_callback(0.22)
 
-    # PHASE 3: OUTLINE (22-30%)
+    # Outline (22-30%)
     status_callback("Creating outline...")
     progress_callback(0.24)
     try:
         outline = editor.create_outline(topic)
     except Exception as e:
-        raise PipelinePhaseError("outline", f"Outline creation failed: {e}")
+        raise WriterError(f"Outline creation failed: {e}") from e
     progress_callback(0.27)
 
     status_callback("Reviewing outline...")
     try:
         critique = critic.critique_outline(outline)
     except Exception as e:
-        # Outline succeeded, critique failed — continue with uncritiqued outline
         critique = ""
         status_callback(f"Critique skipped ({e})")
     progress_callback(0.30)
 
-    # PHASE 4: REFINE OUTLINE (30-35%)
+    # Refine outline (30-35%)
     status_callback("Refining outline...")
     try:
         refined_outline = editor.call_llm(
             f"Refine this outline based on critique. Topic angle: {topic_angle}\n\nOutline:\n{outline}\n\nCritique:\n{critique}"
         )
-        # Validate output is not empty or too short
         if not refined_outline or len(refined_outline.strip()) < 50:
-            refined_outline = outline  # Fall back to original outline
+            refined_outline = outline
     except Exception as e:
         refined_outline = outline
         status_callback(f"Refinement skipped ({e})")
     progress_callback(0.35)
 
-    # PHASE 5: DRAFT (35-50%)
+    # Draft (35-50%)
     status_callback("Writing first draft...")
     progress_callback(0.38)
 
-    # Build draft prompt with fact constraints if available
     draft_instruction = "Write the full article draft."
     if writer_constraints:
         draft_instruction = f"""Write the full article draft.
@@ -1410,22 +1396,31 @@ CRITICAL - FACT CONSTRAINTS FROM RESEARCH:
 
 You MUST follow these constraints. Only use verified facts. Do NOT invent statistics."""
 
-    # Pass source_type to ensure correct voice (external=observer, internal=owner)
     try:
         draft = writer.write_section(refined_outline, critique=draft_instruction, source_type=source_type)
 
-        # Validate: catch error string returns from BaseAgent
         error_prefixes = ["Error:", "Groq Error:", "Gemini Error:", "OpenAI Error:"]
         if any(draft.strip().startswith(p) for p in error_prefixes):
-            raise ValueError(f"Writer returned error: {draft[:100]}")
+            raise WriterError(f"Writer returned error: {draft[:100]}")
         if len(draft.strip()) < 200:
-            raise ValueError(f"Draft too short ({len(draft)} chars)")
+            raise WriterError(f"Draft too short ({len(draft)} chars)")
+    except WriterError:
+        raise
     except Exception as e:
-        raise PipelinePhaseError("draft", f"Draft generation failed: {e}")
-    progress_callback(0.50)
+        raise WriterError(f"Draft generation failed: {e}") from e
 
-    # PHASE 6: SPECIALISTS (50-75%)
-    # Voice-specific instructions based on source type
+    progress_callback(0.50)
+    return draft
+
+
+def _phase_specialists(draft, source_type, progress_callback, status_callback):
+    """
+    Phase 6: Run specialist agents (hook, storytelling, voice, value density) + final polish.
+
+    Returns the refined draft string.
+    """
+    from execution.agents.specialist import SpecialistAgent
+
     if source_type == "internal":
         storytelling_instruction = """Your job is to make this feel like it's written by a REAL engineer, not an AI.
 
@@ -1446,7 +1441,7 @@ Do NOT add fake-sounding stories. If it feels forced, cut it."""
 
 Read it aloud - if it sounds like a robot wrote it, rewrite those parts."""
 
-    else:  # external source - OBSERVER voice
+    else:
         storytelling_instruction = """Your job is to make this feel like it's written by a REAL tech journalist, not an AI.
 
 CRITICAL: You are an OBSERVER. You did NOT build this. Never claim ownership.
@@ -1508,7 +1503,6 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
         try:
             specialist = SpecialistAgent(constraint_name=name, constraint_instruction=instruction)
             result = specialist.refine(draft)
-            # Validate: specialist didn't return error string or empty
             if result and len(result.strip()) > len(draft.strip()) * 0.3:
                 draft = result
             else:
@@ -1518,10 +1512,9 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
         current += progress_per
         progress_callback(current)
 
-    # PHASE 7: POLISH (75-80%)
+    # Final polish (75%)
     status_callback("Final polish...")
 
-    # Voice-aware final polish instruction
     if source_type == "internal":
         final_polish_voice = """
 7. VOICE CHECK: This is a practitioner piece - "I", "we", "our" are appropriate and encouraged."""
@@ -1549,8 +1542,17 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
     draft = polisher.refine(draft)
     progress_callback(0.75)
 
-    # PHASE 7.5: DRAFT VERIFICATION via Perplexity (75-82%)
-    # Verify claims in draft against real sources before quality gate
+    return draft
+
+
+def _phase_verify_draft(draft, topic, fact_researcher, perplexity_available, progress_callback, status_callback):
+    """
+    Phase 7.5: Verify claims in draft via Perplexity. Returns verification_result dict (or None).
+
+    Non-fatal: returns None if verification unavailable or fails.
+    """
+    from execution.agents.specialist import SpecialistAgent
+
     verification_result = None
 
     if perplexity_available and fact_researcher:
@@ -1563,7 +1565,6 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
                 topic=topic
             )
 
-            # If verification finds issues, apply fixes via specialist
             recommendation = verification_result.get('recommendation', 'PASS')
             false_claims = len(verification_result.get('false_claims', []))
             unverifiable = len(verification_result.get('unverifiable_claims', []))
@@ -1573,7 +1574,6 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
 
                 revision_instructions = verification_result.get('revision_instructions', '')
                 if revision_instructions:
-                    # Use specialist to apply fact corrections
                     fact_fixer = SpecialistAgent(
                         constraint_name="Fact Correction Specialist",
                         constraint_instruction=f"""You are fixing factual issues identified by web search verification.
@@ -1598,23 +1598,32 @@ Output ONLY the corrected article. No explanations."""
             print(f"Draft verification failed: {e}")
             status_callback("Verification skipped (continuing)")
 
-        progress_callback(0.82)
-    else:
-        progress_callback(0.82)
+    progress_callback(0.82)
 
-    # PHASE 8: QUALITY GATE (82-92%)
-    # Adversarial expert panel review with REVIEW <-> FIX loop
+    return draft, verification_result
+
+
+def _phase_quality_gate(draft, source_type, progress_callback, status_callback):
+    """
+    Phase 8: Adversarial expert panel review. Returns (updated_draft, quality_result).
+
+    Raises QualityGateError on fatal failure.
+    """
+    from execution.quality_gate import QualityGate
+
     status_callback("Quality gate review...")
     progress_callback(0.82)
 
-    quality_gate = QualityGate(max_iterations=3, verbose=False)
-    quality_result = quality_gate.process(
-        content=draft,
-        platform="medium",
-        source_type=source_type  # Pass voice context
-    )
+    try:
+        quality_gate = QualityGate(max_iterations=3, verbose=False)
+        quality_result = quality_gate.process(
+            content=draft,
+            platform="medium",
+            source_type=source_type
+        )
+    except Exception as e:
+        raise QualityGateError(f"Quality gate failed: {e}") from e
 
-    # Use the quality-gated content
     draft = quality_result.final_content
 
     if quality_result.passed:
@@ -1624,11 +1633,23 @@ Output ONLY the corrected article. No explanations."""
 
     progress_callback(0.92)
 
-    # PHASE 9: VISUALS (92-98%)
+    return draft, quality_result
+
+
+def _phase_generate_visuals(draft, progress_callback, status_callback):
+    """
+    Phase 9: Generate visual suggestions and infographic images.
+
+    Returns (visual_plan, image_paths).
+    """
+    from execution.agents.visuals import VisualsAgent
+
     status_callback("Generating visuals...")
+    visuals = VisualsAgent()
     visual_plan = visuals.suggest_visuals(draft)
     image_paths = []
 
+    output_dir = OUTPUT_DIR
     if visual_plan and isinstance(visual_plan, list):
         status_callback(f"Creating {len(visual_plan)} infographics...")
         images_dir = output_dir / "images"
@@ -1636,8 +1657,17 @@ Output ONLY the corrected article. No explanations."""
 
     progress_callback(0.98)
 
-    # PHASE 10: SAVE (95-100%)
+    return visual_plan, image_paths
+
+
+def _phase_save_article(draft, image_paths, progress_callback, status_callback):
+    """
+    Phase 10: Save final article to disk. Returns filepath string.
+    """
     status_callback("Saving...")
+
+    output_dir = OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"medium_full_{timestamp}.md"
@@ -1662,20 +1692,75 @@ Output ONLY the corrected article. No explanations."""
     progress_callback(1.0)
     status_callback("Complete")
 
+    return str(filepath)
+
+
+def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
+    """
+    Run the COMPLETE automated pipeline by orchestrating phase functions:
+    1. Topic Research Agent selects best topic
+    2. Fact Research via Perplexity (grounded web search)
+    3. Full article generation with all agents
+    4. Draft Verification via Perplexity
+    5. Quality Gate (adversarial review loop)
+    6. Visual generation
+
+    Raises PipelineError subclasses (ResearchError, WriterError, etc.) on fatal failures.
+    Non-fatal phases (fact research, verification, specialists) degrade gracefully.
+
+    Returns:
+        dict with content, filepath, topic info, images, quality_result, fact_sheet
+    """
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Phase 1: Topic research (0-10%)
+    research = _phase_research_topic(progress_callback, status_callback, provided_topic)
+    topic = research['topic']
+    topic_angle = research['topic_angle']
+    source_type = research['source_type']
+    selected = research['selected']
+
+    # Phase 1.5: Fact research (10-18%)
+    facts = _phase_research_facts(topic, selected, progress_callback, status_callback)
+
+    # Phases 2-5: Outline + Draft (18-50%)
+    draft = _phase_generate_draft(
+        topic, topic_angle, facts['writer_constraints'], source_type,
+        progress_callback, status_callback,
+    )
+
+    # Phase 6: Specialists + Polish (50-75%)
+    draft = _phase_specialists(draft, source_type, progress_callback, status_callback)
+
+    # Phase 7.5: Draft verification (75-82%)
+    draft, verification_result = _phase_verify_draft(
+        draft, topic, facts['fact_researcher'], facts['perplexity_available'],
+        progress_callback, status_callback,
+    )
+
+    # Phase 8: Quality gate (82-92%)
+    draft, quality_result = _phase_quality_gate(draft, source_type, progress_callback, status_callback)
+
+    # Phase 9: Visuals (92-98%)
+    visual_plan, image_paths = _phase_generate_visuals(draft, progress_callback, status_callback)
+
+    # Phase 10: Save (98-100%)
+    filepath = _phase_save_article(draft, image_paths, progress_callback, status_callback)
+
     return {
         'content': draft,
-        'filepath': str(filepath),
+        'filepath': filepath,
         'image_paths': image_paths,
         'visual_plan': visual_plan,
         'topic': topic,
-        'topic_reasoning': topic_reasoning,
+        'topic_reasoning': research['topic_reasoning'],
         'topic_angle': topic_angle,
         'quality_score': quality_result.final_score,
         'quality_passed': quality_result.passed,
         'quality_iterations': quality_result.iterations_used,
-        'fact_sheet': fact_sheet,
+        'fact_sheet': facts['fact_sheet'],
         'verification_result': verification_result,
-        'perplexity_used': perplexity_available,
+        'perplexity_used': facts['perplexity_available'],
     }
 
 
@@ -2068,9 +2153,12 @@ def main():
 
                 st.rerun()
 
+            except PipelineError as e:
+                st.session_state.is_running = False
+                st.error(f"Pipeline failed: {e}")
             except Exception as e:
                 st.session_state.is_running = False
-                st.error(f"Error: {str(e)}")
+                st.error(f"Unexpected error: {str(e)}")
                 st.exception(e)
 
     else:

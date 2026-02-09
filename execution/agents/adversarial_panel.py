@@ -15,12 +15,15 @@ Content must achieve a minimum average score to pass the quality gate.
 """
 
 from .base_agent import BaseAgent, LLMError
+from execution.config import config as app_config
+from collections import Counter
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 import json
 import re
 import os
 from abc import ABC, abstractmethod
+import numpy as np
 from execution.utils.json_parser import extract_json_from_llm
 
 
@@ -355,28 +358,33 @@ class AdversarialPanelAgent(BaseAgent):
 
     # Multi-model routing configuration
     # Different LLMs excel at different review dimensions
-    MODEL_ROUTING = {
-        "ethics_fairness": {
-            "model": "claude-sonnet-4-20250514",  # Claude excels at nuanced ethical reasoning
-            "provider": "anthropic",
-            "panels": ["brand"],  # Brand consistency, voice appropriateness
-            "weight": 1.3
-        },
-        "accuracy_facts": {
-            "model": "gemini-2.0-flash-exp",  # Gemini with grounding for fact-checking
-            "provider": "google",
-            "panels": ["seo"],  # Technical accuracy, SEO compliance
-            "weight": 1.5
-        },
-        "structure_style": {
-            "model": "gpt-4o",  # GPT-4o for structure and style
-            "provider": "openai",
-            "panels": ["agency", "creative"],  # Conversion, creativity
-            "weight": 1.0
+    # Model names sourced from centralized config
+    @classmethod
+    def _build_model_routing(cls):
+        return {
+            "ethics_fairness": {
+                "model": app_config.models.ETHICS_REVIEWER_MODEL,
+                "provider": "anthropic",
+                "panels": ["brand"],
+                "weight": 1.3
+            },
+            "accuracy_facts": {
+                "model": app_config.models.FACT_REVIEWER_MODEL,
+                "provider": "google",
+                "panels": ["seo"],
+                "weight": 1.5
+            },
+            "structure_style": {
+                "model": app_config.models.STRUCTURE_REVIEWER_MODEL,
+                "provider": "openai",
+                "panels": ["agency", "creative"],
+                "weight": 1.0
+            }
         }
-    }
 
-    def __init__(self, model="gemini-2.0-flash-exp", multi_model: bool = True):
+    def __init__(self, model=None, multi_model: bool = True):
+        if model is None:
+            model = app_config.models.DEFAULT_BASE_MODEL
         super().__init__(
             role="Adversarial Expert Panel Coordinator",
             persona="""You coordinate a panel of world-class copywriting experts.
@@ -386,6 +394,7 @@ You identify exact failures and prescribe exact fixes.""",
             model=model
         )
         self.multi_model = multi_model
+        self.MODEL_ROUTING = self._build_model_routing()
         self._model_clients = {}
         if multi_model:
             self._setup_model_clients()
@@ -445,15 +454,16 @@ You identify exact failures and prescribe exact fixes.""",
 
     def _get_model_for_panel(self, panel_name: str) -> tuple:
         """Get the appropriate model/provider for a panel."""
+        default_model = app_config.models.DEFAULT_BASE_MODEL
         if not self.multi_model:
-            return ("gemini-2.0-flash-exp", "google", 1.0)
+            return (default_model, "google", 1.0)
 
-        for route_name, config in self.MODEL_ROUTING.items():
-            if panel_name in config["panels"]:
-                return (config["model"], config["provider"], config["weight"])
+        for route_name, route_cfg in self.MODEL_ROUTING.items():
+            if panel_name in route_cfg["panels"]:
+                return (route_cfg["model"], route_cfg["provider"], route_cfg["weight"])
 
         # Default fallback
-        return ("gemini-2.0-flash-exp", "google", 1.0)
+        return (default_model, "google", 1.0)
 
     def _check_kill_phrases(self, content: str) -> List[tuple]:
         """Check for instant-failure phrases."""
@@ -542,14 +552,13 @@ Output ONLY valid JSON."""
                         result[key] = {"passed": False, "score": 5, "issues": ["Not evaluated"]}
 
                 # Calculate weighted overall score
-                weighted_score = 0
-                total_weight = 0
-                for key, config in self.WSJ_FOUR_SHOWSTOPPERS.items():
-                    if key in result:
-                        weighted_score += result[key].get("score", 5) * config["weight"]
-                        total_weight += config["weight"]
-
-                result["weighted_score"] = round(weighted_score / total_weight, 1) if total_weight > 0 else 0
+                wsj_keys = [k for k in self.WSJ_FOUR_SHOWSTOPPERS if k in result]
+                if wsj_keys:
+                    scores = np.array([result[k].get("score", 5) for k in wsj_keys])
+                    weights = np.array([self.WSJ_FOUR_SHOWSTOPPERS[k]["weight"] for k in wsj_keys])
+                    result["weighted_score"] = round(float(np.average(scores, weights=weights)), 1)
+                else:
+                    result["weighted_score"] = 0
                 result["overall_passed"] = result.get("overall_passed", result["weighted_score"] >= 7.0)
 
                 return result
@@ -740,19 +749,13 @@ Be brutally honest. Output ONLY valid JSON."""
         # Step 4: Weighted score aggregation
         if all_critiques:
             # Calculate weighted average based on panel weights
-            total_weighted_score = 0
-            total_weight = 0
-            for c in all_critiques:
-                # Extract weight from agency string or default to 1.0
-                weight = 1.0
-                for panel_name, w in panel_weights.items():
-                    if panel_name in str(c.agency).lower():
-                        weight = w
-                        break
-                total_weighted_score += c.score * weight
-                total_weight += weight
-
-            avg_score = total_weighted_score / total_weight if total_weight > 0 else 0
+            scores = np.array([c.score for c in all_critiques])
+            weights = np.array([
+                next((w for pn, w in panel_weights.items()
+                      if pn in str(c.agency).lower()), 1.0)
+                for c in all_critiques
+            ])
+            avg_score = float(np.average(scores, weights=weights))
         else:
             avg_score = 0
 
@@ -779,14 +782,11 @@ Be brutally honest. Output ONLY valid JSON."""
                 all_failures.insert(0, f"[WSJ] {issue}")
 
         # Simple frequency count for critical failures
-        failure_counts = {}
-        for f in all_failures:
-            f_normalized = f.lower()[:50]
-            failure_counts[f_normalized] = failure_counts.get(f_normalized, 0) + 1
+        failure_counts = Counter(f.lower()[:50] for f in all_failures)
 
         critical_failures = [
             f for f in all_failures
-            if failure_counts.get(f.lower()[:50], 0) >= 2
+            if failure_counts[f.lower()[:50]] >= 2
         ][:5]
 
         # Add kill phrase failures to critical

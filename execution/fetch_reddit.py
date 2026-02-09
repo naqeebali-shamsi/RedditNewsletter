@@ -8,11 +8,19 @@ Usage:
 """
 
 import feedparser
+import requests
 import sqlite3
 import time
 import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    wait_random,
+    retry_if_exception_type,
+)
 
 # Database path
 DB_PATH = Path(__file__).parent.parent / "reddit_content.db"
@@ -22,14 +30,25 @@ TIER_SP = ["LocalLLaMA", "LLMDevs", "LanguageTechnology"]
 TIER_S = ["MachineLearning", "deeplearning", "mlops", "learnmachinelearning"]
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=30) + wait_random(0, 2),
+    retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout)),
+    reraise=True,
+)
+def _fetch_rss_request(url, headers):
+    """HTTP request for subreddit RSS, retried on transient errors."""
+    return requests.get(url, headers=headers, timeout=10)
+
+
 def fetch_subreddit_rss(subreddit_name, max_posts=100):
     """
     Fetch posts from a subreddit's RSS feed.
-    
+
     Args:
         subreddit_name: Name of the subreddit (without r/)
         max_posts: Maximum number of posts to fetch
-    
+
     Returns:
         List of post dictionaries
     """
@@ -37,13 +56,12 @@ def fetch_subreddit_rss(subreddit_name, max_posts=100):
     # Format: appname/version (by /u/username)
     user_agent = "RedditNewsBot/1.0 (by /u/RedditNewsBot)"
     headers = {'User-Agent': user_agent}
-    
+
     rss_url = f"https://www.reddit.com/r/{subreddit_name}.rss"
     print(f"Fetching {rss_url}...")
-    
+
     try:
-        import requests
-        response = requests.get(rss_url, headers=headers, timeout=10)
+        response = _fetch_rss_request(rss_url, headers)
         print(f"  Status: {response.status_code}")
         
         if response.status_code != 200:

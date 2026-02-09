@@ -13,6 +13,7 @@ Works BEFORE style/voice refinement to reject bad content early.
 """
 
 from .base_agent import BaseAgent
+from execution.config import config
 import re
 import ast
 from typing import List, Dict, Tuple, Optional
@@ -151,7 +152,7 @@ Your job is NOT to rewrite content. Your job is to IDENTIFY SPECIFIC FAILURES:
    - "According to Google's 2023 MLOps report..." = OK (verifiable)
 
 Return a structured assessment with SPECIFIC line-by-line failures.""",
-            model="llama-3.3-70b-versatile"
+            model=config.models.DEFAULT_CRITIC_MODEL
         )
 
     def _extract_code_blocks(self, text: str) -> List[Tuple[str, str]]:

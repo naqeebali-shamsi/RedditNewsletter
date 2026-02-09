@@ -56,19 +56,19 @@ def main():
     research_agent = None
     research_agent_name = None
 
-    # Try Gemini 3 Flash first (best Google Search integration)
+    # Try Gemini first (best Google Search integration)
     try:
-        research_agent = GeminiResearchAgent(model="gemini-3-flash-preview")
-        research_agent_name = "Gemini 3 Flash"
-        print("   ✓ Research Agent: Gemini 3 Flash (Google Search Grounding)")
+        research_agent = GeminiResearchAgent()
+        research_agent_name = "Gemini Research"
+        print(f"   ✓ Research Agent: Gemini ({config.models.GEMINI_RESEARCH_MODEL})")
     except Exception as e:
         print(f"   ⚠️  Gemini unavailable: {e}")
 
-        # Fallback to Perplexity Sonar Pro (excellent factuality, built-in citations)
+        # Fallback to Perplexity (excellent factuality, built-in citations)
         try:
-            research_agent = PerplexityResearchAgent(model="sonar-pro")
-            research_agent_name = "Perplexity Sonar Pro"
-            print("   ✓ Research Agent: Perplexity Sonar Pro (Grounded Search)")
+            research_agent = PerplexityResearchAgent()
+            research_agent_name = "Perplexity Research"
+            print(f"   ✓ Research Agent: Perplexity ({config.models.RESEARCH_MODEL_FALLBACK})")
         except Exception as e2:
             print(f"   ⚠️  Perplexity unavailable: {e2}")
             print("   ⚠️  No grounded research available - will use pattern-based validation")

@@ -17,6 +17,13 @@ import sqlite3
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    wait_random,
+    retry_if_exception_type,
+)
 
 # Import the source system
 from sources import (
@@ -218,9 +225,17 @@ def get_enabled_sources() -> List[SourceType]:
     return enabled
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=30) + wait_random(0, 2),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+    reraise=True,
+)
 def fetch_from_source(source_type: SourceType, config: Optional[Dict[str, Any]] = None) -> FetchResult:
     """
     Fetch content from a single source.
+
+    Retries up to 3 times on transient connection errors.
 
     Args:
         source_type: Type of source to fetch from

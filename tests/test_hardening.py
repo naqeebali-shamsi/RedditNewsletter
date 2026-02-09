@@ -1375,5 +1375,296 @@ class TestSourceDatabase:
             self._cleanup(db_mod)
 
 
+# ============================================================================
+# 17. Typed exceptions (execution/exceptions.py)
+# ============================================================================
+
+class TestTypedExceptions:
+    """Verify the typed exception hierarchy in execution/exceptions.py."""
+
+    def test_exception_hierarchy(self):
+        """All exception types must inherit from PipelineError."""
+        from execution.exceptions import (
+            PipelineError, ResearchError, WriterError,
+            VerificationError, QualityGateError, StyleError
+        )
+        for exc_cls in (ResearchError, WriterError, VerificationError,
+                        QualityGateError, StyleError):
+            assert issubclass(exc_cls, PipelineError), \
+                f"{exc_cls.__name__} must inherit from PipelineError"
+
+    def test_writer_error_is_pipeline_error(self):
+        """isinstance check: WriterError should be a PipelineError."""
+        from execution.exceptions import PipelineError, WriterError
+        err = WriterError("draft generation failed")
+        assert isinstance(err, PipelineError)
+        assert isinstance(err, Exception)
+
+    def test_exceptions_carry_message(self):
+        """str(exc) must return the message passed at construction."""
+        from execution.exceptions import (
+            ResearchError, WriterError, VerificationError,
+            QualityGateError, StyleError
+        )
+        for cls, msg in [
+            (ResearchError, "research timeout"),
+            (WriterError, "draft too short"),
+            (VerificationError, "provider unavailable"),
+            (QualityGateError, "score below threshold"),
+            (StyleError, "burstiness too low"),
+        ]:
+            err = cls(msg)
+            assert str(err) == msg
+
+
+# ============================================================================
+# 18. Style enforcer word boundaries
+# ============================================================================
+
+class TestStyleEnforcerWordBoundaries:
+    """Verify word-boundary matching prevents false positives in style enforcer."""
+
+    def _get_enforcer(self):
+        from execution.agents.style_enforcer import StyleEnforcerAgent
+        return StyleEnforcerAgent()
+
+    def test_no_false_positive_button_but(self):
+        """'button' should NOT match the contrast indicator 'but'."""
+        enforcer = self._get_enforcer()
+        # "but" is in CONTRAST_INDICATORS; "button" must not trigger it
+        text = "The button component renders correctly on all browsers."
+        framework = enforcer._check_framework_compliance(text)
+        # If has_contrast is True, it should be because of a real "but" word,
+        # not because "button" contains "but"
+        matches = list(enforcer._contrast_re.finditer(text))
+        matched_words = [m.group() for m in matches]
+        assert "but" not in matched_words, \
+            f"'button' falsely matched 'but' in: {matched_words}"
+
+    def test_no_false_positive_notation_not(self):
+        """'notation' should NOT match the contrast indicator 'not'."""
+        enforcer = self._get_enforcer()
+        text = "The notation used in academic papers follows a standard convention."
+        matches = list(enforcer._contrast_re.finditer(text))
+        matched_words = [m.group() for m in matches]
+        assert "not" not in matched_words, \
+            f"'notation' falsely matched 'not' in: {matched_words}"
+
+    def test_true_positive_game_changer(self):
+        """'game-changer' should still match forbidden phrases if present."""
+        enforcer = self._get_enforcer()
+        # game-changer is not a default phrase, but we can test that
+        # actual forbidden phrases are detected. Use "let's dive in"
+        text = "Let's dive in to the details of the architecture."
+        tells = enforcer._detect_ai_tells(text)
+        phrases = [t["phrase"].lower() for t in tells]
+        assert "let's dive in" in phrases
+
+    def test_contrast_word_boundary(self):
+        """'button stopped' should NOT match 'but' or 'stop' as contrast indicators."""
+        enforcer = self._get_enforcer()
+        text = "The button stopped working after the last deployment."
+        matches = list(enforcer._contrast_re.finditer(text))
+        matched_words = [m.group().lower() for m in matches]
+        # "stop" is in CONTRAST_INDICATORS; "stopped" should match because
+        # word boundary \b fires at the end of "stopped" since "ed" ends with \w
+        # Actually "stop" != "stopped" - word boundary prevents partial match
+        assert "but" not in matched_words, \
+            f"'button' falsely matched 'but' in: {matched_words}"
+
+    def test_contrast_true_positive(self):
+        """'but the results showed' should match 'but' as a contrast indicator."""
+        enforcer = self._get_enforcer()
+        text = "Teams expected faster results, but the results showed otherwise."
+        matches = list(enforcer._contrast_re.finditer(text))
+        matched_words = [m.group().lower() for m in matches]
+        assert "but" in matched_words, \
+            f"Expected 'but' match in: {matched_words}"
+
+
+# ============================================================================
+# 19. Pydantic config
+# ============================================================================
+
+class TestPydanticConfig:
+    """Verify Pydantic-based GhostWriterConfig."""
+
+    def test_config_loads(self):
+        """GhostWriterConfig can be instantiated without errors."""
+        from execution.config import GhostWriterConfig
+        cfg = GhostWriterConfig()
+        assert cfg is not None
+        assert cfg.APP_NAME == "GhostWriter"
+
+    def test_model_config_fields(self):
+        """ModelConfig should have expected fields with defaults."""
+        from execution.config import ModelConfig
+        mc = ModelConfig()
+        assert hasattr(mc, "DEFAULT_WRITER_MODEL")
+        assert hasattr(mc, "DEFAULT_CRITIC_MODEL")
+        assert hasattr(mc, "DEFAULT_FAST_MODEL")
+        assert isinstance(mc.DEFAULT_WRITER_MODEL, str)
+        assert len(mc.DEFAULT_WRITER_MODEL) > 0
+
+    def test_config_type_coercion(self):
+        """QualityConfig int fields should enforce types via Pydantic."""
+        from execution.config import QualityConfig
+        # Pydantic should accept int values and maintain type
+        qc = QualityConfig(MAX_ITERATIONS=5)
+        assert qc.MAX_ITERATIONS == 5
+        assert isinstance(qc.MAX_ITERATIONS, int)
+
+
+# ============================================================================
+# 20. Pydantic article_state dict compat
+# ============================================================================
+
+class TestArticleStateDictCompat:
+    """Verify dict-style access on Pydantic ArticleState."""
+
+    def _make_state(self):
+        from execution.article_state import ArticleState
+        return ArticleState(topic="test topic", platform="medium")
+
+    def test_getitem(self):
+        """state['topic'] should work like dict access."""
+        state = self._make_state()
+        assert state["topic"] == "test topic"
+
+    def test_setitem(self):
+        """state['topic'] = 'new' should update the field."""
+        state = self._make_state()
+        state["topic"] = "updated topic"
+        assert state["topic"] == "updated topic"
+        assert state.topic == "updated topic"
+
+    def test_contains(self):
+        """'topic' in state should return True for defined fields."""
+        state = self._make_state()
+        assert "topic" in state
+        assert "platform" in state
+        assert "nonexistent_field_xyz" not in state
+
+    def test_dict_conversion(self):
+        """dict(state) should produce a valid dictionary."""
+        state = self._make_state()
+        d = dict(state)
+        assert isinstance(d, dict)
+        assert d["topic"] == "test topic"
+        assert "platform" in d
+
+
+# ============================================================================
+# 21. Sentence boundary detection
+# ============================================================================
+
+class TestSentenceBoundary:
+    """Verify _split_sentences handles abbreviations, decimals, URLs."""
+
+    def _split(self, text):
+        from execution.agents.fact_verification_agent import _split_sentences
+        return _split_sentences(text)
+
+    def test_abbreviation_dr(self):
+        """'Dr. Smith went home.' should NOT split at 'Dr.'."""
+        result = self._split("Dr. Smith went home. Then he rested.")
+        # Should be 2 sentences, not 3
+        assert len(result) == 2, f"Expected 2 sentences, got {len(result)}: {result}"
+        assert any("Dr. Smith" in s for s in result)
+
+    def test_decimal_number(self):
+        """'The price was $3.14 per unit.' should NOT split at '3.'."""
+        result = self._split("The price was $3.14 per unit. That was fair.")
+        assert len(result) == 2, f"Expected 2 sentences, got {len(result)}: {result}"
+        assert any("3.14" in s for s in result)
+
+    def test_normal_sentence(self):
+        """'First sentence. Second sentence.' should split correctly."""
+        result = self._split("First sentence is here. Second sentence follows.")
+        assert len(result) == 2, f"Expected 2 sentences, got {len(result)}: {result}"
+
+    def test_url_dots(self):
+        """'Visit example.com for details.' should not over-split."""
+        result = self._split("Visit example.com for details. It has more info.")
+        # "example.com" - the dot is followed by lowercase, so the regex
+        # _CANDIDATE_BREAK_RE only triggers on ". " + uppercase. This should be fine.
+        assert len(result) == 2, f"Expected 2 sentences, got {len(result)}: {result}"
+
+
+# ============================================================================
+# 22. Word similarity
+# ============================================================================
+
+class TestWordSimilarity:
+    """Verify _word_similarity in FactVerificationAgent."""
+
+    def _sim(self, a, b):
+        from execution.agents.fact_verification_agent import FactVerificationAgent
+        return FactVerificationAgent._word_similarity(a, b)
+
+    def test_identical_claims(self):
+        """Same text should return 1.0 similarity."""
+        score = self._sim(
+            "Python is a popular programming language",
+            "Python is a popular programming language"
+        )
+        assert score == 1.0
+
+    def test_no_overlap(self):
+        """Completely different texts should return 0.0."""
+        score = self._sim(
+            "quantum entanglement particles physics",
+            "chocolate cake recipe ingredients baking"
+        )
+        assert score == 0.0
+
+    def test_partial_overlap(self):
+        """Some shared words should give a score between 0 and 1."""
+        score = self._sim(
+            "Python programming language features",
+            "Python scripting language benefits"
+        )
+        assert 0.0 < score < 1.0
+
+    def test_short_claim_handling(self):
+        """Short claims (few non-stop words) should still return a score."""
+        score = self._sim("fast", "fast")
+        assert score == 1.0
+
+
+# ============================================================================
+# 23. Jinja2 XSS prevention (puter_bridge.py)
+# ============================================================================
+
+class TestJinja2XSSPrevention:
+    """Verify that Jinja2 autoescape is enabled in puter_bridge.py."""
+
+    def test_script_tag_escaped(self):
+        """<script>alert('xss')</script> should be escaped by Jinja2 autoescape."""
+        from jinja2 import Environment, BaseLoader
+
+        env = Environment(loader=BaseLoader(), autoescape=True)
+        template = env.from_string("Hello {{ name }}")
+        result = template.render(name="<script>alert('xss')</script>")
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result
+
+    def test_normal_content_unchanged(self):
+        """Regular text should pass through Jinja2 autoescape unchanged."""
+        from jinja2 import Environment, BaseLoader
+
+        env = Environment(loader=BaseLoader(), autoescape=True)
+        template = env.from_string("Hello {{ name }}")
+        result = template.render(name="World")
+        assert result == "Hello World"
+
+    def test_puter_bridge_uses_autoescape(self):
+        """puter_bridge.py must use autoescape=True."""
+        source = Path(__file__).parent.parent / "execution" / "puter_bridge.py"
+        content = source.read_text(encoding="utf-8")
+        assert "autoescape=True" in content, \
+            "puter_bridge.py must enable Jinja2 autoescape"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

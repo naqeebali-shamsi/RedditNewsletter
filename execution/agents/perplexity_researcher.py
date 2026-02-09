@@ -20,6 +20,7 @@ import re
 from typing import Dict, List, Optional
 from openai import OpenAI
 from execution.utils.json_parser import extract_json_from_llm
+from execution.config import config
 from execution.utils.research_templates import (
     generate_writer_constraints,
     generate_revision_instructions,
@@ -92,7 +93,9 @@ Return a JSON object with:
 
 Be ruthless. If you can't verify it, flag it."""
 
-    def __init__(self, model: str = "sonar-pro"):
+    def __init__(self, model: str = None):
+        if model is None:
+            model = config.models.RESEARCH_MODEL_FALLBACK
         """
         Initialize the Perplexity research agent.
 

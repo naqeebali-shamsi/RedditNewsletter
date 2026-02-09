@@ -109,6 +109,12 @@ class StyleEnforcerAgent:
         "to some extent", "in some cases",
     ]
 
+    # Contrast hook indicators (first paragraph)
+    CONTRAST_INDICATORS = ['vs', 'but', 'not', 'instead', 'stop', 'wrong', 'mistake', 'myth']
+
+    # Tradeoff indicators (full text)
+    TRADEOFF_INDICATORS = ['tradeoff', 'trade-off', 'cost:', 'downside', 'vs.', 'versus', 'at the expense']
+
     def __init__(self, profile_path: Optional[str] = None):
         """
         Initialize with optional voice profile.
@@ -132,6 +138,13 @@ class StyleEnforcerAgent:
             self.forbidden_phrases = self.DEFAULT_FORBIDDEN
             self.war_story_keywords = self.DEFAULT_WAR_STORY_KEYWORDS
 
+        # Compile word-boundary regexes for all phrase/keyword lists
+        self._forbidden_re = self._compile_phrase_regex(self.forbidden_phrases)
+        self._hedging_re = self._compile_phrase_regex(self.HEDGING_PHRASES)
+        self._war_story_re = self._compile_phrase_regex(self.war_story_keywords)
+        self._contrast_re = self._compile_phrase_regex(self.CONTRAST_INDICATORS)
+        self._tradeoff_re = self._compile_phrase_regex(self.TRADEOFF_INDICATORS)
+
         # Ensure NLTK data is available
         if HAS_NLTK:
             try:
@@ -141,6 +154,21 @@ class StyleEnforcerAgent:
                     nltk.download('punkt_tab', quiet=True)
                 except Exception:
                     pass
+
+    @staticmethod
+    def _compile_phrase_regex(phrases: List[str]) -> re.Pattern:
+        """Compile a list of phrases into a single regex with smart word boundaries.
+
+        Adds \\b only where the phrase starts/ends with a word character,
+        so phrases like 'cost:' or '...' match correctly without false negatives.
+        """
+        parts = []
+        for p in phrases:
+            escaped = re.escape(p)
+            prefix = r'\b' if re.match(r'\w', p) else ''
+            suffix = r'\b' if re.search(r'\w$', p) else ''
+            parts.append(prefix + escaped + suffix)
+        return re.compile('|'.join(parts), re.IGNORECASE)
 
     def _tokenize_sentences(self, text: str) -> List[str]:
         """Split text into sentences."""
@@ -203,34 +231,25 @@ class StyleEnforcerAgent:
             return (None, ttr)
 
     def _detect_ai_tells(self, text: str) -> List[Dict[str, Any]]:
-        """Scan for forbidden AI-generated phrases."""
-        text_lower = text.lower()
+        """Scan for forbidden AI-generated phrases using word-boundary matching."""
         violations = []
 
         lines = text.split('\n')
-        for phrase in self.forbidden_phrases:
-            if phrase.lower() in text_lower:
-                # Find line numbers
-                for i, line in enumerate(lines):
-                    if phrase.lower() in line.lower():
-                        violations.append({
-                            "phrase": phrase,
-                            "line": i + 1,
-                            "context": line.strip()[:100],
-                            "severity": "critical"
-                        })
-
-        # Also check hedging phrases (less severe)
-        for phrase in self.HEDGING_PHRASES:
-            if phrase.lower() in text_lower:
-                for i, line in enumerate(lines):
-                    if phrase.lower() in line.lower():
-                        violations.append({
-                            "phrase": phrase,
-                            "line": i + 1,
-                            "context": line.strip()[:100],
-                            "severity": "warning"
-                        })
+        for i, line in enumerate(lines):
+            for match in self._forbidden_re.finditer(line):
+                violations.append({
+                    "phrase": match.group(),
+                    "line": i + 1,
+                    "context": line.strip()[:100],
+                    "severity": "critical"
+                })
+            for match in self._hedging_re.finditer(line):
+                violations.append({
+                    "phrase": match.group(),
+                    "line": i + 1,
+                    "context": line.strip()[:100],
+                    "severity": "warning"
+                })
 
         return violations
 
@@ -240,12 +259,7 @@ class StyleEnforcerAgent:
 
         Returns: (keywords_found, metrics_found)
         """
-        text_lower = text.lower()
-
-        keywords_found = []
-        for kw in self.war_story_keywords:
-            if kw.lower() in text_lower:
-                keywords_found.append(kw)
+        keywords_found = [m.group() for m in self._war_story_re.finditer(text)]
 
         # Detect specific metrics/numbers
         metrics = re.findall(
@@ -260,12 +274,10 @@ class StyleEnforcerAgent:
 
         # Check for contrast hook (first paragraph challenges status quo)
         first_para = text.split('\n\n')[0] if '\n\n' in text else text[:500]
-        contrast_indicators = ['vs', 'but', 'not', 'instead', 'stop', 'wrong', 'mistake', 'myth']
-        has_contrast = any(ind in first_para.lower() for ind in contrast_indicators)
+        has_contrast = bool(self._contrast_re.search(first_para))
 
         # Check for tradeoff mentions
-        tradeoff_indicators = ['tradeoff', 'trade-off', 'cost:', 'downside', 'vs.', 'versus', 'at the expense']
-        has_tradeoff = any(ind in text.lower() for ind in tradeoff_indicators)
+        has_tradeoff = bool(self._tradeoff_re.search(text))
 
         # Check paragraph lengths
         limits = {'linkedin': 3, 'article': 5, 'longform': 6}

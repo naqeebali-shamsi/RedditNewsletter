@@ -2,14 +2,12 @@
 import os
 import json
 from pathlib import Path
+from jinja2 import Environment, BaseLoader
+from markupsafe import Markup
 
-def generate_puter_html(visual_plan, output_dir):
-    """
-    Generates an HTML file that uses Puter.js to generate images client-side.
-    This avoids API keys and backend limits by leveraging the User-Pays (free tier) model.
-    """
-    
-    html_content = """
+_env = Environment(loader=BaseLoader(), autoescape=True)
+
+_PUTER_TEMPLATE = _env.from_string('''\
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -31,15 +29,15 @@ def generate_puter_html(visual_plan, output_dir):
     </style>
 </head>
 <body>
-    <h1>🍌 Nano Banana Visuals (Puter.js)</h1>
-    <p>Generating high-fidelity infographics using <b>Gemini 2.5 Flash Image Preview</b> & <b>Flux.1 Schnell</b>.</p>
-    
+    <h1>Nano Banana Visuals (Puter.js)</h1>
+    <p>Generating high-fidelity infographics using <b>Gemini 2.5 Flash Image Preview</b> &amp; <b>Flux.1 Schnell</b>.</p>
+
     <div class="grid" id="grid">
         <!-- Cards injected here -->
     </div>
 
     <script>
-        const visualPlan = VISUAL_PLAN_PLACEHOLDER;
+        const visualPlan = {{ visual_plan_json }};
 
         const container = document.getElementById('grid');
 
@@ -47,31 +45,33 @@ def generate_puter_html(visual_plan, output_dir):
         visualPlan.forEach((item, index) => {
             const card = document.createElement('div');
             card.className = 'card';
-            
+
             const prompt = item.image_generation_prompt || item.Prompt || item.description;
             const title = item['Concept Name'] || item.ConceptName || `Visual #${index + 1}`;
 
+            // Sanitize text to prevent DOM XSS via innerHTML
+            const esc = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
             card.innerHTML = `
-                <h2>${title}</h2>
-                <div class="prompt">"${prompt}"</div>
+                <h2>${esc(title)}</h2>
+                <div class="prompt">"${esc(prompt)}"</div>
                 <div class="image-container" id="img-container-${index}">
                     <span class="status">Waiting to generate...</span>
                 </div>
                 <div style="display: flex; gap: 10px; margin-top: 10px;">
-                    <button onclick="generateImage(${index}, '${prompt.replace(/'/g, "\\'")}', 'gemini-2.5-flash-image-preview')">Generate (Nano Banana)</button>
-                    <button onclick="generateImage(${index}, '${prompt.replace(/'/g, "\\'")}', 'black-forest-labs/FLUX.1-schnell')">Generate (Flux)</button>
+                    <button onclick="generateImage(${index}, '${prompt.replace(/'/g, "\\\\'")}', 'gemini-2.5-flash-image-preview')">Generate (Nano Banana)</button>
+                    <button onclick="generateImage(${index}, '${prompt.replace(/'/g, "\\\\'")}', 'black-forest-labs/FLUX.1-schnell')">Generate (Flux)</button>
                 </div>
             `;
             container.appendChild(card);
-            
+
             // Auto-trigger Gemini generation
-            setTimeout(() => generateImage(index, prompt, 'gemini-2.5-flash-image-preview'), index * 1000); // Staggered start
+            setTimeout(() => generateImage(index, prompt, 'gemini-2.5-flash-image-preview'), index * 1000);
         });
 
         function generateImage(index, prompt, model) {
             const imgContainer = document.getElementById(`img-container-${index}`);
             imgContainer.innerHTML = '<span class="status">Generating with ' + model + '...</span>';
-            
+
             puter.ai.txt2img(prompt, { model: model })
                 .then(img => {
                     imgContainer.innerHTML = '';
@@ -84,16 +84,26 @@ def generate_puter_html(visual_plan, output_dir):
     </script>
 </body>
 </html>
+''')
+
+
+def generate_puter_html(visual_plan, output_dir):
     """
-    
-    # Inject JSON
-    safe_json = json.dumps(visual_plan)
-    final_html = html_content.replace("VISUAL_PLAN_PLACEHOLDER", safe_json)
-    
+    Generates an HTML file that uses Puter.js to generate images client-side.
+    This avoids API keys and backend limits by leveraging the User-Pays (free tier) model.
+    """
+    # Safely embed JSON in a <script> block.
+    # json.dumps produces valid JS literals; we escape </script> to prevent
+    # injection, then wrap in Markup so Jinja2 doesn't double-escape it.
+    raw_json = json.dumps(visual_plan, ensure_ascii=False)
+    safe_json = Markup(raw_json.replace("</", "<\\/"))
+
+    final_html = _PUTER_TEMPLATE.render(visual_plan_json=safe_json)
+
     filename = "visuals_dashboard.html"
     filepath = Path(output_dir) / filename
-    
+
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(final_html)
-        
+
     return filepath

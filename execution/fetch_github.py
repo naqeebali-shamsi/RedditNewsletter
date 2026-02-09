@@ -17,6 +17,13 @@ import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    wait_random,
+    retry_if_exception_type,
+)
 
 # Load environment variables
 load_dotenv()
@@ -47,12 +54,23 @@ def get_configured_repos():
     return DEFAULT_REPOS
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=30) + wait_random(0, 2),
+    retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout)),
+    reraise=True,
+)
+def _fetch_commit_details_request(url, headers):
+    """HTTP request for commit details, retried on transient errors."""
+    return requests.get(url, headers=headers, timeout=15)
+
+
 def fetch_commit_details(owner, repo, sha, headers):
     """Fetch detailed commit info including files changed."""
     url = f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}"
 
     try:
-        response = requests.get(url, headers=headers, timeout=15)
+        response = _fetch_commit_details_request(url, headers)
         if response.status_code == 200:
             data = response.json()
             files = [f["filename"] for f in data.get("files", [])]
@@ -65,6 +83,17 @@ def fetch_commit_details(owner, repo, sha, headers):
         print(f"    Warning: Could not fetch commit details: {e}")
 
     return {"files": [], "additions": 0, "deletions": 0}
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=30) + wait_random(0, 2),
+    retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout)),
+    reraise=True,
+)
+def _fetch_repo_commits_request(url, headers, params):
+    """HTTP request for repo commits list, retried on transient errors."""
+    return requests.get(url, headers=headers, params=params, timeout=30)
 
 
 def fetch_repo_commits(owner, repo, max_commits=50, since_hours=168):
@@ -100,7 +129,7 @@ def fetch_repo_commits(owner, repo, max_commits=50, since_hours=168):
     print(f"  Fetching {url}...")
 
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response = _fetch_repo_commits_request(url, headers, params)
         print(f"  Status: {response.status_code}")
 
         if response.status_code == 403:

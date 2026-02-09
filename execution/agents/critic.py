@@ -1,5 +1,7 @@
 from .base_agent import BaseAgent
+from execution.config import config
 import re
+from typing import List, Tuple
 
 
 class CriticAgent(BaseAgent):
@@ -25,6 +27,26 @@ class CriticAgent(BaseAgent):
         ("🚀 Interesting insight from r/", "TEMPLATE_OPENER", "Same opener every post"),
         ("#AIEngineering #MachineLearning #LLMOps #ProductionAI", "HASHTAG_SPAM", "Same hashtags every post"),
     ]
+
+    # Split kill phrases: word-boundary-safe vs literal substring
+    # Phrases starting/ending with non-word chars cannot use \b
+    _WORD_KILL_PHRASES = [
+        (phrase, code, desc) for phrase, code, desc in KILL_PHRASES
+        if re.search(r'^\w', phrase) and re.search(r'\w$', phrase)
+    ]
+    _LITERAL_KILL_PHRASES = [
+        (phrase, code, desc) for phrase, code, desc in KILL_PHRASES
+        if not (re.search(r'^\w', phrase) and re.search(r'\w$', phrase))
+    ]
+
+    # Compiled regex for word-boundary-safe kill phrases
+    _KILL_PHRASE_RE = re.compile(
+        r'\b(?:' + '|'.join(re.escape(p) for p, _, _ in _WORD_KILL_PHRASES) + r')\b',
+        re.IGNORECASE
+    ) if _WORD_KILL_PHRASES else None
+
+    # Lookup from lowered phrase to (code, description) for kill phrase metadata
+    _KILL_PHRASE_META = {phrase.lower(): (code, desc) for phrase, code, desc in KILL_PHRASES}
 
     def __init__(self):
         super().__init__(
@@ -63,14 +85,25 @@ CREATIVE SINS:
 
 You score content 1-10 and provide SPECIFIC failures.
 If content has ANY kill-phrase violations, automatic score cap of 4.""",
-            model="llama-3.3-70b-versatile"
+            model=config.models.DEFAULT_CRITIC_MODEL
         )
 
     def _check_kill_phrases(self, text: str) -> list:
-        """Check for instant-failure phrases."""
+        """Check for instant-failure phrases using word-boundary matching."""
         violations = []
+        # Word-boundary regex for phrases that start/end with word chars
+        if self._KILL_PHRASE_RE:
+            for match in self._KILL_PHRASE_RE.finditer(text):
+                matched = match.group()
+                code, description = self._KILL_PHRASE_META[matched.lower()]
+                violations.append({
+                    "code": code,
+                    "phrase": matched,
+                    "description": description
+                })
+        # Literal substring match for phrases with special chars (e.g. "...", HTML tags)
         text_lower = text.lower()
-        for phrase, code, description in self.KILL_PHRASES:
+        for phrase, code, description in self._LITERAL_KILL_PHRASES:
             if phrase.lower() in text_lower:
                 violations.append({
                     "code": code,

@@ -1,4 +1,5 @@
 from .base_agent import BaseAgent
+from execution.config import config
 
 class EditorAgent(BaseAgent):
     """
@@ -61,7 +62,7 @@ Your QUALITY GATES (Non-negotiable):
 
 You are NOT a passive reviewer. You are the final quality gate.
 If content feels AI-generated, templated, or mediocre - REJECT IT.""",
-            model="llama-3.3-70b-versatile"
+            model=config.models.DEFAULT_EDITOR_MODEL
         )
 
     def create_outline(self, topic_signal):

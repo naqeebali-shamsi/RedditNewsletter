@@ -15,6 +15,7 @@ import json
 from typing import Dict, Optional, Callable
 from execution.utils.json_parser import extract_json_from_llm
 from .base_agent import BaseAgent, LLMError
+from execution.config import config
 
 
 class FactResearchAgent(BaseAgent):
@@ -51,7 +52,7 @@ You return a structured fact sheet that becomes the Writer's bible.
 If a fact isn't in your sheet, the Writer CANNOT use it.
 
 Remember: You are the guardrail against hallucination. Be thorough.""",
-            model="llama-3.3-70b-versatile"
+            model=config.models.DEFAULT_WRITER_MODEL
         )
 
     def research(self, topic: str, source_content: str = "", web_search_func: Optional[Callable] = None) -> Dict:

@@ -13,6 +13,7 @@ import sqlite3
 from pathlib import Path
 from typing import List, Dict, Optional
 from .base_agent import BaseAgent, LLMError
+from execution.config import config
 from execution.utils.json_parser import extract_json_from_llm
 
 
@@ -56,7 +57,7 @@ You focus on:
 2. PRACTITIONER RELEVANCE: What would affect someone deploying these tools?
 3. TIMING: Is this addressing a known pain point? Is it ahead of the curve?
 4. UNIQUENESS: Can we offer insight others won't have?""",
-            model="llama-3.3-70b-versatile"
+            model=config.models.DEFAULT_WRITER_MODEL
         )
 
     def fetch_commits_from_db(self, limit: int = 100) -> List[Dict]:

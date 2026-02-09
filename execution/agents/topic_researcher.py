@@ -13,6 +13,7 @@ import time
 import json
 from typing import List, Dict, Optional
 from .base_agent import BaseAgent, LLMError
+from execution.config import config
 from execution.utils.json_parser import extract_json_from_llm
 
 
@@ -66,7 +67,7 @@ You evaluate topics based on:
 3. RECRUITER APPEAL: Would a hiring manager find this impressive?
 4. UNIQUE ANGLE: Can we offer a practitioner's perspective vs. generic takes?
 5. LINKEDIN FIT: Will this work as a professional technical post?""",
-            model="llama-3.1-8b-instant"
+            model=config.models.DEFAULT_FAST_MODEL
         )
 
     def fetch_trending_topics(self, max_per_sub: int = 8) -> List[Dict]:

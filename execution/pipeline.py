@@ -28,6 +28,8 @@ from datetime import datetime
 from functools import wraps
 import operator
 
+from pydantic import Field
+
 # LangGraph imports
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -121,24 +123,24 @@ class PipelineState(ArticleState):
     and keys written by pipeline nodes not covered by ArticleState.
     """
     # Graph control
-    messages: Annotated[list, add_messages] = []  # For agent communication
+    messages: Annotated[list, add_messages] = Field(default_factory=list)
     iteration_count: int = 0
     max_iterations: int = 3
 
     # Style check outputs
     style_score: Optional[float] = None
-    style_result: Dict[str, Any] = {}
+    style_result: Dict[str, Any] = Field(default_factory=dict)
     style_passed: bool = False
     style_error: str = ""
 
     # Escalation outputs
-    escalation_codes: List[str] = []
-    escalation_reasons: List[str] = []
+    escalation_codes: List[str] = Field(default_factory=list)
+    escalation_reasons: List[str] = Field(default_factory=list)
     iterations_used: int = 0
 
     # Approval outputs
     approval_reason: str = ""
-    review_reasons: List[str] = []
+    review_reasons: List[str] = Field(default_factory=list)
 
 
 # ============================================================================
@@ -1012,13 +1014,13 @@ def run_pipeline(
                 if node_name == PHASE_RESEARCH:
                     tracker.record_research(
                         "ResearchAgent",
-                        model=node_state.get("research_model", "gemini-2.0-flash"),
+                        model=node_state.get("research_model", config.models.RESEARCH_MODEL_PRIMARY),
                         facts_found=len(node_state.get("research_facts", []))
                     )
                 elif node_name == PHASE_GENERATE:
                     tracker.record_generation(
                         "WriterAgent",
-                        model=node_state.get("writer_model", "llama-3.3-70b"),
+                        model=node_state.get("writer_model", config.models.DEFAULT_WRITER_MODEL),
                         word_count=node_state.get("word_count", 0)
                     )
                 elif node_name == PHASE_VERIFY:

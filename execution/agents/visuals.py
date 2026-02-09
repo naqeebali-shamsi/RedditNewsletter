@@ -1,4 +1,5 @@
 from .base_agent import BaseAgent, LLMError
+from execution.config import config
 import json
 from typing import List, Dict, Optional
 from execution.utils.json_parser import extract_json_from_llm
@@ -19,7 +20,7 @@ Your output must be:
 1. **Concept Name**: Catchy title for the graphic.
 2. **Description**: Clear instruction for the artist.
 3. **Prompt**: The exact prompt for Nano Banana/Flux (e.g., 'A minimalist flow diagram... vector style...').""",
-            model="llama-3.1-8b-instant"
+            model=config.models.DEFAULT_FAST_MODEL
         )
 
     def suggest_visuals(self, article_text):

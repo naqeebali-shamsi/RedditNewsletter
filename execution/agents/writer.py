@@ -1,4 +1,5 @@
 from .base_agent import BaseAgent
+from execution.config import config
 
 class WriterAgent(BaseAgent):
     """
@@ -73,7 +74,7 @@ FORBIDDEN:
 - "Studies show" without specific source
 
 You write for cynical senior engineers who can smell AI-generated content from a mile away.""",
-            model="llama-3.1-8b-instant"
+            model=config.models.DEFAULT_FAST_MODEL
         )
 
     def write_section(self, section_plan, critique=None, source_type: str = "external"):

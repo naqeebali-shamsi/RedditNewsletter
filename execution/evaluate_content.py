@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from execution.utils.json_parser import extract_json_from_llm
+from execution.config import config
 
 # Try to import LLM client
 try:
@@ -238,7 +239,7 @@ Respond in this exact JSON format:
         try:
             client = Groq(api_key=os.getenv("GROQ_API_KEY"))
             response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model=config.models.DEFAULT_WRITER_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=200,
@@ -254,7 +255,7 @@ Respond in this exact JSON format:
     if GEMINI_AVAILABLE and os.getenv("GOOGLE_API_KEY"):
         try:
             genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel(config.models.CONTENT_EVAL_MODEL)
             response = model.generate_content(prompt)
             result = extract_json_from_llm(response.text)
             if result is not None:

@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-09)
 ## Current Position
 
 Phase: 2 of 7 (Retrieval Tools)
-Plan: 2 of 3 in current phase
-Status: In progress — Plan 02-02 complete (BM25 + CrossEncoder)
-Last activity: 2026-02-10 — Completed 02-02-PLAN.md (BM25 sparse retrieval + CrossEncoder reranking)
+Plan: 3 of 3 in current phase
+Status: Phase complete — Plan 02-03 complete (Hybrid Retrieval Orchestrator)
+Last activity: 2026-02-10 — Completed 02-03-PLAN.md (Hybrid retrieval orchestrator with RRF fusion)
 
-Progress: [████████████░░] ~20% overall (6/estimated 30 plans)
+Progress: [█████████████░] ~23% overall (7/estimated 30 plans)
 
 ## Phase Delivery Summaries
 
@@ -42,13 +42,13 @@ Progress: [████████████░░] ~20% overall (6/estimated
 
 **Deferred:** Live embedding + semantic search test (OpenAI monthly budget exhausted). All code paths verified via import/instantiation/unit checks.
 
-### Phase 2: Retrieval Tools (IN PROGRESS)
+### Phase 2: Retrieval Tools (COMPLETE)
 
-**2 plans executed (Wave 1):**
-- Plan 02-01: Metadata filters + recency scoring + citation extraction
-- Plan 02-02: BM25 sparse retrieval + CrossEncoder reranking
+**3 plans executed across 2 waves:**
+- Wave 1 (Plans 02-01, 02-02): Utility modules (metadata filters, recency, citations, BM25, CrossEncoder)
+- Wave 2 (Plan 02-03): Hybrid retrieval orchestrator + integration test
 
-**5 commits total. Key artifacts:**
+**7 commits total. Key artifacts:**
 
 | Module | Purpose | Key Exports |
 |--------|---------|-------------|
@@ -57,20 +57,19 @@ Progress: [████████████░░] ~20% overall (6/estimated
 | `execution/vector_db/citations.py` | Sentence-level citation extraction | CitationExtractor, Citation |
 | `execution/vector_db/bm25_index.py` | Fast BM25 sparse retrieval using bm25s | BM25Index |
 | `execution/vector_db/reranking.py` | CrossEncoder precision reranking | CrossEncoderReranker |
+| `execution/vector_db/retrieval.py` | Hybrid retrieval orchestrator (BM25+vector→RRF→rerank→citations) | HybridRetriever, RetrievalResult, hybrid_search |
+| `execution/config.py` | RetrievalConfig with 14 tunable parameters | RetrievalConfig |
+| `scripts/test_retrieval.py` | End-to-end integration test (9 test steps) | CLI test runner |
+
+**Deferred:** Live integration test (OpenAI budget exhausted). Test framework verified working.
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Total execution time: ~45 min (team-based parallel execution)
-- Review cycles: 2 (Wave 1 + Wave 2), 1 blocker caught + fixed
-
-**Team execution model:**
-- 2 developers (parallel on Wave 2)
-- 2 code reviewers
-- 2 adversarial auditors
-- 1 research agent (library alternatives)
-- Multiple tester iterations
+- Total plans completed: 7 (Phase 1: 4, Phase 2: 3)
+- Total execution time: ~51 min (Phase 1: ~45 min, Phase 2: ~6 min)
+- Review cycles: 2 (Phase 1 Wave 1 + Wave 2), 1 blocker caught + fixed
+- Autonomous execution: Phase 2 executed without human intervention (all 3 plans)
 
 ## Accumulated Context
 
@@ -97,13 +96,18 @@ Recent decisions affecting current work:
 - Lazy loading for CrossEncoder models: sentence-transformers import is slow, defer until first rerank() (D-02-02-002)
 - Cap reranking at 100 candidates: CrossEncoder scores ~1800 docs/sec, 100 = 55ms latency (D-02-02-003)
 - Use numpy 1.26.4 for compatibility: Balances scipy>=1.26.4 requirement with bm25s/jax 1.x support (D-02-02-004)
+- Apply metadata filters at SQL WHERE clause level: Filtering before vector distance calculation is critical for performance (D-02-03-001)
+- Graceful degradation for BM25 and CrossEncoder: Fall back to vector-only or skip reranking rather than failing entire search (D-02-03-002)
+- Lazy loading for CrossEncoder in HybridRetriever: Importing retrieval.py shouldn't trigger slow sentence-transformers import (D-02-03-003)
+- RRF normalization to 0-1 range: Makes RRF scores comparable across queries and combinable with recency scores (D-02-03-004)
 
 ### Pending Todos
 
-- Run full integration test with live OpenAI embeddings when budget resets (18 days)
+- Run full integration tests (Phase 1 + Phase 2) with live OpenAI embeddings when budget resets (18 days)
 - Fix numpy/matplotlib version conflict (lexicalrichness depends on matplotlib compiled for numpy 1.x)
-- Add GIN indexes on topic_tags and entities columns before Phase 02-03 hybrid retrieval load testing (Phase 2)
+- Add GIN indexes on topic_tags and entities columns before load testing at 100k+ chunks
 - Track LLM citation compliance rate in Phase 5 (% of claims with [citation_id])
+- Build BM25 index after initial data ingestion (call ensure_bm25_index() in ingestion script)
 
 ### Blockers/Concerns
 
@@ -114,16 +118,20 @@ Recent decisions affecting current work:
 - Semantic Scholar rate limits (prevention: batch endpoints, 1 req/sec enforcement, citation depth limiting)
 
 **Phase-specific research flags:**
-- Phase 2 (Retrieval Tools): GIN index performance needs validation at 100k+ chunks before hybrid retrieval
-- Phase 2 (Retrieval Tools): Trend keyword coverage may miss queries — log classifications to identify gaps
 - Phase 3 (Gmail Ingestion): Newsletter format diversity testing needed with Substack/Beehiiv/ConvertKit
 - Phase 4 (Semantic Scholar): Citation graph traversal strategies and batch endpoint behavior need validation
 - Phase 5 (Pipeline Integration): Agent-specific retrieval impact unknown — A/B testing required
 - Phase 5 (Pipeline Integration): LLM citation compliance unknown — track [citation_id] usage in responses
+- Phase 5 (Pipeline Integration): Hybrid search latency impact on agent response time — measure end-to-end
+
+**Phase 2 notes for future optimization:**
+- GIN index performance needs validation at 100k+ chunks
+- Trend keyword coverage may miss queries — log classifications to identify gaps
+- First rerank() call has model loading latency (~2-3 sec) - consider pre-warming in production
 
 ## Session Continuity
 
-Last session: 2026-02-10T16:36:14Z
-Stopped at: Completed 02-02-PLAN.md (BM25 sparse retrieval + CrossEncoder reranking)
+Last session: 2026-02-10T16:48:00Z
+Stopped at: Completed 02-03-PLAN.md (Hybrid Retrieval Orchestrator with RRF fusion)
 Resume file: None
-Next: Phase 02-03 (Hybrid Retrieval Orchestrator with RRF fusion)
+Next: Phase 3 (Gmail Ingestion) or Phase 4 (Semantic Scholar Integration) - knowledge source ingestion pipelines

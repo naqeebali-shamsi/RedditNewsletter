@@ -16,7 +16,8 @@ dependency_graph:
     - 01-04 (ingestion orchestrator calls EmbeddingClient)
 
 tech_stack:
-  added: []
+  added:
+    - tiktoken (accurate token counting for budget enforcement)
   patterns:
     - Lazy OpenAI client initialization (defer API key validation)
     - Tenacity retry with exponential backoff for transient errors
@@ -57,7 +58,7 @@ metrics:
 - Automatic daily reset when date changes (UTC)
 - `check_budget()` blocks embedding when estimated tokens exceed remaining limit
 - Warning at 10% remaining threshold, error log when limit exceeded
-- `estimate_tokens()` helper at 1 token per 4 characters
+- `estimate_tokens()` using tiktoken cl100k_base (4-char fallback if unavailable)
 - Module-level convenience functions: `check_daily_limit()`, `record_usage()`
 
 ### Embedding Client (execution/vector_db/embeddings.py)
@@ -84,6 +85,7 @@ metrics:
 |--------|-------------|
 | 89ffb64 | feat(01-02): token tracking and daily limit enforcement |
 | 83c9c3e | feat(01-02): OpenAI embedding client with sync and batch modes |
+| eaa9307 | fix(01-02): use tiktoken for accurate token estimation |
 
 ## Deviations from Plan
 

@@ -8,8 +8,7 @@ existing SQLite content database (execution/sources/database.py).
 All tables include tenant_id for multi-tenant isolation.
 """
 
-from datetime import datetime
-
+from execution.utils.datetime_utils import utc_now
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Column,
@@ -59,7 +58,7 @@ class Document(Base):
     content = Column(Text, nullable=False)
     url = Column(Text, nullable=True)
     date_published = Column(DateTime, nullable=True)
-    date_ingested = Column(DateTime, default=datetime.utcnow)
+    date_ingested = Column(DateTime, default=utc_now)
     metadata_ = Column("metadata", JSONB, default=dict)
     processing_status = Column(String(20), default="pending")
     error_message = Column(Text, nullable=True)
@@ -113,8 +112,8 @@ class KnowledgeChunk(Base):
     entities = Column(JSONB, default=list)
     cited_by = Column(JSONB, default=list)
     related_to = Column(JSONB, default=list)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     __table_args__ = (
         Index("ix_chunk_tenant_document", "tenant_id", "document_id"),
@@ -147,7 +146,7 @@ class IngestionLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     tenant_id = Column(String(50), nullable=False, default="default")
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=utc_now)
     completed_at = Column(DateTime, nullable=True)
     status = Column(String(20), default="running")
     documents_processed = Column(Integer, default=0)

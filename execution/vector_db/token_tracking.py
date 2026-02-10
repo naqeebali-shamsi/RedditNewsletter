@@ -18,7 +18,6 @@ Usage:
 
 import json
 import logging
-from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -63,7 +62,7 @@ class TokenTracker:
         Returns:
             Dict with keys: date, tokens_used, requests, last_updated.
         """
-        today = date.today().isoformat()
+        today = utc_now().date().isoformat()
         default = {
             "date": today,
             "tokens_used": 0,
@@ -181,7 +180,7 @@ class TokenTracker:
     def reset(self) -> None:
         """Force reset counters to zero. Intended for testing."""
         self._write_usage({
-            "date": date.today().isoformat(),
+            "date": utc_now().date().isoformat(),
             "tokens_used": 0,
             "requests": 0,
         })

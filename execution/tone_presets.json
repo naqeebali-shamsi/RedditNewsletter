@@ -1,0 +1,242 @@
+[
+  {
+    "name": "Expert Pragmatist",
+    "description": "Battle-tested engineer sharing hard-won lessons. Data-heavy, opinionated, zero fluff. The current GhostWriter default voice.",
+    "formality_level": 0.6,
+    "technical_depth": 0.8,
+    "personality": "authoritative",
+    "sentence_style": {
+      "avg_length_target": 18,
+      "burstiness_target": 0.45,
+      "length_variance": "high"
+    },
+    "vocabulary_preferences": {
+      "preferred_words": ["tradeoff", "production", "latency", "throughput", "shipped", "broke", "cost us", "in practice", "here's why", "the gotcha"],
+      "avoided_words": ["utilize", "leverage", "synergy", "paradigm", "ecosystem", "journey", "landscape", "empower", "holistic", "robust"],
+      "jargon_level": "heavy"
+    },
+    "hook_style": "contrarian_challenge",
+    "cta_style": "specific_question",
+    "example_phrases": [
+      "We burned $12K in GPU credits before we found the real bottleneck.",
+      "Everyone's shipping RAG. Nobody's shipping RAG that works.",
+      "The fix took 3 lines. Finding those 3 lines took 2 weeks.",
+      "Stop tuning hyperparameters. Start reading your error logs.",
+      "Here's the part nobody tells you about running LLMs in production."
+    ],
+    "forbidden_phrases": [
+      "In this article, we will explore",
+      "It is worth noting that",
+      "Let's dive in",
+      "Without further ado",
+      "In today's fast-paced world",
+      "What's been your experience?",
+      "As AI continues to evolve",
+      "Game-changer",
+      "Paradigm shift",
+      "Needless to say"
+    ],
+    "war_story_keywords": ["I built", "I broke", "we encountered", "pager duty", "context leak", "we built", "we broke", "I debugged", "I discovered", "we learned", "I spent", "the gotcha", "in production", "I watched", "cost us"],
+    "source": "preset"
+  },
+  {
+    "name": "Thought Leader",
+    "description": "Visionary strategist connecting dots across disciplines. Forward-looking, big-picture, inspires action through clarity of vision.",
+    "formality_level": 0.7,
+    "technical_depth": 0.5,
+    "personality": "visionary",
+    "sentence_style": {
+      "avg_length_target": 22,
+      "burstiness_target": 0.40,
+      "length_variance": "medium"
+    },
+    "vocabulary_preferences": {
+      "preferred_words": ["signal", "trajectory", "inflection point", "second-order effect", "unlock", "converge", "asymmetric", "compounding", "moat", "non-obvious"],
+      "avoided_words": ["synergy", "disrupt", "pivot", "move the needle", "low-hanging fruit", "boil the ocean", "circle back", "deep dive", "at scale", "double down"],
+      "jargon_level": "light"
+    },
+    "hook_style": "future_vision",
+    "cta_style": "inspiration",
+    "example_phrases": [
+      "The companies that win the next decade won't be the ones building AI. They'll be the ones redesigning work around it.",
+      "We're not in an AI bubble. We're in an AI compression - 10 years of change in 18 months.",
+      "The real moat isn't your model. It's your feedback loop.",
+      "Every infrastructure shift creates a 5-year window. We're 18 months in.",
+      "The question isn't whether AI replaces engineers. It's which engineers become 10x more valuable."
+    ],
+    "forbidden_phrases": [
+      "Disruptive innovation",
+      "Think outside the box",
+      "The future is now",
+      "Cutting-edge technology",
+      "Best-in-class",
+      "Unprecedented times",
+      "New normal",
+      "Digital transformation",
+      "Thought leadership",
+      "Move fast and break things"
+    ],
+    "war_story_keywords": ["I've seen", "I noticed", "pattern I keep seeing", "the signal", "what most people miss", "the counter-argument", "I've been tracking", "the data shows", "over the past year"],
+    "source": "preset"
+  },
+  {
+    "name": "Technical Deep Dive",
+    "description": "Systems architect explaining how things work under the hood. Heavy on data, code examples, and architecture decisions. Minimal narrative.",
+    "formality_level": 0.8,
+    "technical_depth": 1.0,
+    "personality": "analytical",
+    "sentence_style": {
+      "avg_length_target": 16,
+      "burstiness_target": 0.35,
+      "length_variance": "medium"
+    },
+    "vocabulary_preferences": {
+      "preferred_words": ["implementation", "benchmark", "p99", "throughput", "latency", "memory footprint", "time complexity", "cache miss", "write amplification", "back-pressure"],
+      "avoided_words": ["magic", "silver bullet", "easy", "simple", "just", "obviously", "clearly", "game-changer", "exciting", "amazing"],
+      "jargon_level": "heavy"
+    },
+    "hook_style": "problem_statement",
+    "cta_style": "resource_share",
+    "example_phrases": [
+      "At 10K QPS, the naive approach hits a wall. Here's the architecture that doesn't.",
+      "The benchmark tells one story. The flame graph tells another.",
+      "Three approaches to this problem. One of them scales. The other two look like they do.",
+      "Measured on our production workload: 340ms p99 before, 12ms p99 after. Here's every change we made.",
+      "The documentation says O(log n). The reality is O(n) when your index doesn't fit in memory."
+    ],
+    "forbidden_phrases": [
+      "As we all know",
+      "It is well established",
+      "Simply put",
+      "In layman's terms",
+      "To put it simply",
+      "The beauty of this approach",
+      "Elegant solution",
+      "Exciting development",
+      "Revolutionary",
+      "Groundbreaking"
+    ],
+    "war_story_keywords": ["measured", "benchmarked", "profiled", "the trace showed", "flame graph", "in our cluster", "under load", "at scale", "the regression", "the hotspot", "cache hit rate", "we instrumented"],
+    "source": "preset"
+  },
+  {
+    "name": "Conversational Engineer",
+    "description": "Friendly engineer explaining things over coffee. First-person, casual, blog-style. Makes complex topics feel approachable.",
+    "formality_level": 0.3,
+    "technical_depth": 0.6,
+    "personality": "friendly",
+    "sentence_style": {
+      "avg_length_target": 14,
+      "burstiness_target": 0.55,
+      "length_variance": "high"
+    },
+    "vocabulary_preferences": {
+      "preferred_words": ["honestly", "look", "here's the thing", "turns out", "spoiler", "nope", "wild", "legit", "basically", "the trick is"],
+      "avoided_words": ["furthermore", "consequently", "notwithstanding", "heretofore", "whereby", "thereafter", "aforementioned", "henceforth", "thus", "hence"],
+      "jargon_level": "light"
+    },
+    "hook_style": "personal_story",
+    "cta_style": "community_discussion",
+    "example_phrases": [
+      "So I mass-deleted our Kubernetes configs on a Friday. Let me tell you how that went.",
+      "Look, I've tried every state management library. They all kinda suck. Here's why I stopped caring.",
+      "Honestly? The best debugging tool I've found is a good night's sleep.",
+      "Hot take: most microservices should be monoliths. Fight me.",
+      "I spent 3 days on a bug that turned out to be a missing comma. Classic."
+    ],
+    "forbidden_phrases": [
+      "It is imperative to note",
+      "One must consider",
+      "It can be observed that",
+      "The aforementioned",
+      "In accordance with",
+      "With respect to the",
+      "It should be emphasized",
+      "It is of paramount importance",
+      "Pursuant to",
+      "In the interest of brevity"
+    ],
+    "war_story_keywords": ["I tried", "I messed up", "I finally figured out", "so what happened was", "the embarrassing part", "turns out", "learned the hard way", "my dumb mistake", "the aha moment", "I totally forgot"],
+    "source": "preset"
+  },
+  {
+    "name": "News Reporter",
+    "description": "Technology journalist delivering facts with WSJ-level precision. Third-person, objective, lead-driven. Reports rather than opines.",
+    "formality_level": 0.9,
+    "technical_depth": 0.5,
+    "personality": "objective",
+    "sentence_style": {
+      "avg_length_target": 20,
+      "burstiness_target": 0.30,
+      "length_variance": "low"
+    },
+    "vocabulary_preferences": {
+      "preferred_words": ["according to", "sources indicate", "the company said", "analysts note", "data shows", "reported", "announced", "disclosed", "estimated", "projected"],
+      "avoided_words": ["I think", "I believe", "in my opinion", "personally", "honestly", "game-changer", "exciting", "amazing", "incredible", "revolutionary"],
+      "jargon_level": "none"
+    },
+    "hook_style": "breaking_insight",
+    "cta_style": "none",
+    "example_phrases": [
+      "OpenAI's latest model costs 40% less to run than its predecessor, according to internal benchmarks shared with developers.",
+      "Three major cloud providers quietly changed their AI pricing this quarter, signaling a shift in the competitive landscape.",
+      "The vulnerability, first disclosed in a security advisory last Tuesday, affects an estimated 2.3 million deployments worldwide.",
+      "Engineers at the company discovered the performance regression after a routine load test revealed 3x higher latency than expected.",
+      "Industry analysts project the market for AI infrastructure will reach $180 billion by 2028, up from earlier estimates of $120 billion."
+    ],
+    "forbidden_phrases": [
+      "I think",
+      "In my experience",
+      "We should all",
+      "Let me tell you",
+      "Here's my take",
+      "Hot take",
+      "Unpopular opinion",
+      "Mind-blowing",
+      "Jaw-dropping",
+      "Let's dive in"
+    ],
+    "war_story_keywords": [],
+    "source": "preset"
+  },
+  {
+    "name": "Contrarian Challenger",
+    "description": "Debate-oriented engineer who questions popular consensus with data. Strong opinions, loosely held. Provokes thinking through disagreement.",
+    "formality_level": 0.5,
+    "technical_depth": 0.7,
+    "personality": "provocative",
+    "sentence_style": {
+      "avg_length_target": 15,
+      "burstiness_target": 0.50,
+      "length_variance": "high"
+    },
+    "vocabulary_preferences": {
+      "preferred_words": ["wrong", "myth", "actually", "counterpoint", "evidence", "despite", "contrary to", "the data says otherwise", "unpopular opinion", "nobody talks about"],
+      "avoided_words": ["everyone agrees", "it is well known", "common wisdom", "best practice", "industry standard", "state of the art", "no-brainer", "obviously", "of course", "naturally"],
+      "jargon_level": "light"
+    },
+    "hook_style": "myth_busting",
+    "cta_style": "challenge",
+    "example_phrases": [
+      "Microservices are a bad default. Most teams that adopt them are solving an org chart problem with architecture.",
+      "Your test coverage number is lying to you. 90% coverage with bad tests is worse than 40% coverage with good ones.",
+      "The Kubernetes hype created more problems than it solved for companies under 50 engineers. Prove me wrong.",
+      "Everyone says 'hire for culture fit.' The data says that's how you build a monoculture that can't adapt.",
+      "RAG isn't retrieval-augmented generation. It's retrieval-augmented hallucination with extra steps."
+    ],
+    "forbidden_phrases": [
+      "I totally agree",
+      "Great point by",
+      "Couldn't agree more",
+      "This is so true",
+      "Absolutely right",
+      "No doubt about it",
+      "That's a great question",
+      "Love this take",
+      "So inspiring",
+      "Well said"
+    ],
+    "war_story_keywords": ["I was wrong about", "the evidence shows", "popular opinion says X but", "we proved this wrong", "against conventional wisdom", "the uncomfortable truth", "nobody wants to hear", "the counter-evidence", "I changed my mind when"],
+    "source": "preset"
+  }
+]

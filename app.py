@@ -26,6 +26,11 @@ load_dotenv()
 # Centralized configuration
 from execution.config import config, OUTPUT_DIR, PROJECT_ROOT
 
+# Tone system
+from execution.tone_profiles import list_presets, get_preset, ToneProfile
+from execution.tone_inference import ToneInferenceEngine
+from execution.user_preferences import UserPreferences
+
 # Page config
 st.set_page_config(
     page_title="GhostWriter",
@@ -1027,6 +1032,8 @@ def init_session_state():
         'viewing_history': None,  # Currently viewed history file
         'data_source': 'reddit',  # 'reddit' or 'github'
         'custom_topic': '',  # User-provided custom topic
+        'active_tone': None,  # Active tone profile name (None = use UserPreferences default)
+        'tone_inference_result': None,  # Last inferred tone profile
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -1395,7 +1402,14 @@ def _phase_generate_draft(topic, topic_angle, writer_constraints, source_type, p
 CRITICAL - FACT CONSTRAINTS FROM RESEARCH:
 {writer_constraints}
 
-You MUST follow these constraints. Only use verified facts. Do NOT invent statistics."""
+You MUST follow these constraints. Only use verified facts. Do NOT invent statistics.
+
+CITATION REQUIREMENTS:
+- When citing a specific fact, statistic, or claim from the research above, include it as a markdown hyperlink: [descriptive text](URL)
+- Every article MUST have at least 3 source hyperlinks
+- Place links inline in the text, not as footnotes
+- If a fact has a source_url in the research, USE IT
+- Do NOT invent URLs. Only use URLs provided in the research above."""
 
     try:
         draft = writer.write_section(refined_outline, critique=draft_instruction, source_type=source_type)
@@ -1414,9 +1428,12 @@ You MUST follow these constraints. Only use verified facts. Do NOT invent statis
     return draft
 
 
-def _phase_specialists(draft, source_type, progress_callback, status_callback):
+def _phase_specialists(draft, source_type, fact_sheet, progress_callback, status_callback):
     """
-    Phase 6: Run specialist agents (hook, storytelling, voice, value density) + final polish.
+    Phase 6: Run specialist agents (hook, storytelling, voice, value density, citations) + final polish.
+
+    Args:
+        fact_sheet: The writer_constraints string from fact research, containing source URLs.
 
     Returns the refined draft string.
     """
@@ -1494,6 +1511,22 @@ Keep the author's voice - don't make it sound like marketing copy."""),
 4. The reader should finish thinking "I learned something useful" not "I read a lot of words"
 
 Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways > forced structure."""),
+
+        ("Citation Specialist", "Injecting source links...",
+         f"""Your job is to add source hyperlinks to the article.
+
+AVAILABLE SOURCES FROM RESEARCH:
+{fact_sheet}
+
+INSTRUCTIONS:
+1. Find claims in the article that correspond to facts in the research
+2. Add markdown hyperlinks [text](url) to the most important claims (minimum 3, maximum 8)
+3. If a claim references a study, report, or official documentation, link it
+4. Do NOT invent URLs — only use URLs from the AVAILABLE SOURCES above
+5. Do NOT remove or change existing content — only ADD hyperlinks
+6. Place links naturally in the prose, not as a reference section
+
+Output the full article with hyperlinks added."""),
     ]
 
     progress_per = 0.0625
@@ -1537,6 +1570,7 @@ Do NOT add bullet lists for the sake of it. Natural prose with clear takeaways >
 5. If there are forced bullet lists that interrupt flow, convert them to natural prose.
 6. The final piece should read like ONE person wrote it in ONE sitting - not a committee.
 {final_polish_voice}
+8. PRESERVE all markdown hyperlinks [text](url). Do NOT remove source citations.
 
 Output ONLY the polished markdown. No explanations, no meta-commentary."""
     )
@@ -1544,6 +1578,134 @@ Output ONLY the polished markdown. No explanations, no meta-commentary."""
     progress_callback(0.75)
 
     return draft
+
+
+def _ensure_markdown_structure(draft: str) -> str:
+    """Ensure article has at least basic markdown structure.
+
+    Also fixes common LLM output issues:
+    - Duplicate heading text (H2 title repeated as plain text on next line)
+    - Section titles without ## prefix that should be headings
+    """
+    import re
+
+    # Pass 1: Remove duplicate heading text
+    # Pattern: "## Title\n\nTitle\n" or "## Title\n\nTitle. more text\n"
+    # Catches exact matches AND near-matches (trailing punctuation, continuation)
+    lines = draft.split('\n')
+    cleaned = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip().startswith('## '):
+            heading_text = line.strip().lstrip('#').strip()
+            # Normalize for comparison: lowercase, strip punctuation
+            heading_norm = heading_text.lower().rstrip('.,;:!?')
+            cleaned.append(line)
+            # Skip blank lines and check if next non-blank line duplicates heading
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                cleaned.append(lines[j])
+                j += 1
+            if j < len(lines):
+                next_line = lines[j].strip()
+                next_norm = next_line.lower().rstrip('.,;:!?')
+                if next_norm == heading_norm:
+                    # Exact match (with/without trailing punctuation) — skip line
+                    j += 1
+                elif next_line.lower().startswith(heading_text.lower()):
+                    # Heading text repeated then paragraph continues — strip prefix
+                    after = next_line[len(heading_text):]
+                    # Only strip if continuation starts a new sentence (period/comma then space)
+                    # NOT if it continues the same sentence (e.g. " and reduce...")
+                    if after and after[0] in '.!?,;:':
+                        remainder = after.lstrip('.,;:!? ')
+                        if remainder:
+                            cleaned.append(remainder[0].upper() + remainder[1:] if len(remainder) > 1 else remainder.upper())
+                        j += 1
+            i = j
+        else:
+            cleaned.append(line)
+            i += 1
+    draft = '\n'.join(cleaned)
+
+    # Pass 2: Promote standalone short lines to H2/H3 if they look like section titles
+    # (Short line followed by blank line then paragraph, not already a heading)
+    lines = draft.split('\n')
+    result_lines = []
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        # Skip if already a heading or empty
+        if not stripped or stripped.startswith('#'):
+            result_lines.append(line)
+            continue
+        # Candidate: short line (under 80 chars), no period at end, followed by blank+paragraph
+        is_title_like = (
+            len(stripped) < 80
+            and not stripped.endswith('.')
+            and not stripped.endswith(':')
+            and not stripped.startswith('-')
+            and not stripped.startswith('*')
+            and not stripped.startswith('>')
+            and not stripped.startswith('`')
+            and not stripped.startswith('[')
+            and not any(c in stripped for c in ['(', ')', '{', '}'])
+        )
+        # Check surrounding context: preceded by blank line, followed by blank+content
+        prev_blank = (idx == 0) or (idx > 0 and not lines[idx-1].strip())
+        next_blank = (idx + 1 < len(lines) and not lines[idx+1].strip())
+        has_content_after = (idx + 2 < len(lines) and lines[idx+2].strip())
+
+        if is_title_like and prev_blank and next_blank and has_content_after:
+            # Check if this exact text appears as an H2 nearby (avoid creating duplicates)
+            nearby_h2 = any(
+                l.strip() == f"## {stripped}"
+                for l in lines[max(0, idx-3):idx]
+            )
+            if not nearby_h2:
+                result_lines.append(f"## {stripped}")
+                continue
+        result_lines.append(line)
+
+    draft = '\n'.join(result_lines)
+
+    # Pass 3: If still no H2 headings, add them at intervals
+    lines = draft.split('\n')
+    h2_count = sum(1 for l in lines if l.strip().startswith('## '))
+    if h2_count >= 2:
+        return draft
+
+    paragraphs = [p.strip() for p in draft.split('\n\n') if p.strip()]
+    if len(paragraphs) < 4:
+        return draft
+
+    result = [paragraphs[0]]
+    section_interval = max(2, len(paragraphs) // 4)
+    section_count = 0
+    for i, para in enumerate(paragraphs[1:], 1):
+        if i % section_interval == 0 and section_count < 4:
+            # Extract a clean, title-like heading from the paragraph
+            # Use first sentence (split at period), then first clause (comma)
+            first_sentence = para.split('.')[0].strip()
+            clause = first_sentence.split(',')[0].strip()
+            # Remove markdown bold/link markers for cleaner heading
+            clause = clause.replace('**', '')
+            clause = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', clause)
+            # Ensure reasonable length — end at word boundary if too long
+            if len(clause) > 50:
+                clause = clause[:50].rsplit(' ', 1)[0]
+            # Skip separator lines or very short fragments
+            if clause and clause != '---' and len(clause) > 10:
+                result.append(f"\n## {clause}\n")
+                section_count += 1
+                # Strip heading text from paragraph start to avoid duplication
+                if para.startswith(first_sentence):
+                    remainder = para[len(first_sentence):].lstrip('. ')
+                    if remainder:
+                        para = remainder[0].upper() + remainder[1:] if len(remainder) > 1 else remainder.upper()
+        result.append(para)
+
+    return '\n\n'.join(result)
 
 
 def _phase_verify_draft(draft, topic, fact_researcher, perplexity_available, progress_callback, status_callback):
@@ -1641,7 +1803,11 @@ def _phase_generate_visuals(draft, progress_callback, status_callback):
     """
     Phase 9: Generate visual suggestions and infographic images.
 
-    Returns (visual_plan, image_paths).
+    Validates that generated image files actually exist on disk.
+    Retries failed images once before giving up.
+
+    Returns (visual_plan, image_paths) where image_paths only contains
+    paths to files that exist on disk.
     """
     from execution.agents.visuals import VisualsAgent
 
@@ -1654,7 +1820,44 @@ def _phase_generate_visuals(draft, progress_callback, status_callback):
     if visual_plan and isinstance(visual_plan, list):
         status_callback(f"Creating {len(visual_plan)} infographics...")
         images_dir = output_dir / "images"
-        image_paths = visuals.generate_all_visuals(visual_plan, output_dir=str(images_dir))
+        images_dir.mkdir(parents=True, exist_ok=True)
+
+        paths, results = visuals.generate_all_visuals(
+            visual_plan, output_dir=str(images_dir), return_details=True
+        )
+
+        # Validate: only keep paths that actually exist on disk
+        valid_paths = [p for p in paths if Path(p).exists()]
+        failed_count = len(visual_plan) - len(valid_paths)
+
+        if failed_count > 0:
+            # Identify which plan items failed (no existing file)
+            valid_set = set(valid_paths)
+            failed_plans = []
+            for plan_item, result in zip(visual_plan, results):
+                if not result.success or (
+                    result.file_path and str(result.file_path) not in valid_set
+                ):
+                    failed_plans.append(plan_item)
+
+            if failed_plans:
+                status_callback(
+                    f"{failed_count} image(s) failed, retrying {len(failed_plans)}..."
+                )
+                retry_paths, _ = visuals.generate_all_visuals(
+                    failed_plans, output_dir=str(images_dir), return_details=True
+                )
+                retry_valid = [p for p in retry_paths if Path(p).exists()]
+                valid_paths.extend(retry_valid)
+
+            final_failed = len(visual_plan) - len(valid_paths)
+            if final_failed > 0:
+                status_callback(
+                    f"{len(valid_paths)}/{len(visual_plan)} images generated"
+                    f" ({final_failed} failed)"
+                )
+
+        image_paths = valid_paths
 
     progress_callback(0.98)
 
@@ -1676,10 +1879,12 @@ def _phase_save_article(draft, image_paths, progress_callback, status_callback):
 
     images_section = ""
     if image_paths:
-        images_section = "\n## Generated Images\n"
-        for i, path in enumerate(image_paths, 1):
-            rel_path = Path(path).name
-            images_section += f"![Visual {i}](./images/{rel_path})\n\n"
+        existing_images = [p for p in image_paths if Path(p).exists()]
+        if existing_images:
+            images_section = "\n## Generated Images\n"
+            for i, path in enumerate(existing_images, 1):
+                rel_path = Path(path).name
+                images_section += f"![Visual {i}](./images/{rel_path})\n\n"
 
     final_content = f"""{draft}
 
@@ -1731,7 +1936,10 @@ def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
     )
 
     # Phase 6: Specialists + Polish (50-75%)
-    draft = _phase_specialists(draft, source_type, progress_callback, status_callback)
+    draft = _phase_specialists(draft, source_type, facts['writer_constraints'], progress_callback, status_callback)
+
+    # Phase 6.5: Ensure markdown structure (fallback if LLM output lacks headings)
+    draft = _ensure_markdown_structure(draft)
 
     # Phase 7.5: Draft verification (75-82%)
     draft, verification_result = _phase_verify_draft(
@@ -1741,6 +1949,9 @@ def run_full_pipeline(progress_callback, status_callback, provided_topic=None):
 
     # Phase 8: Quality gate (82-92%)
     draft, quality_result = _phase_quality_gate(draft, source_type, progress_callback, status_callback)
+
+    # Final markdown structure pass (quality gate revisions may strip headings)
+    draft = _ensure_markdown_structure(draft)
 
     # Phase 9: Visuals (92-98%)
     visual_plan, image_paths = _phase_generate_visuals(draft, progress_callback, status_callback)
@@ -1772,6 +1983,14 @@ def main():
     # Header
     st.markdown('<p class="main-header">GhostWriter</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">One-click AI ghostwriting for technical thought leadership</p>', unsafe_allow_html=True)
+
+    # Active tone pill
+    try:
+        _tone_prefs = UserPreferences()
+        _active_profile = _tone_prefs.get_effective_profile()
+        st.markdown(f'<div class="phase-indicator">{safe_html(_active_profile.name)}</div>', unsafe_allow_html=True)
+    except Exception:
+        pass
 
     # Sidebar - History & Config
     with st.sidebar:
@@ -1829,15 +2048,49 @@ def main():
 
         # Config section (collapsed by default)
         with st.expander("Settings", expanded=False):
-            google_key = os.getenv("GOOGLE_API_KEY")
-            groq_key = os.getenv("GROQ_API_KEY")
             github_token = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT")
-            perplexity_key = os.getenv("PERPLEXITY_API_KEY")
 
-            st.caption(f"Groq: {'OK' if groq_key else 'Missing'}")
-            st.caption(f"Google: {'OK' if google_key else 'Missing'}")
-            st.caption(f"Perplexity: {'OK (fact verification)' if perplexity_key else 'Missing (optional)'}")
-            st.caption(f"GitHub: {'OK (5000 req/hr)' if github_token else 'Anonymous (60 req/hr)'}")
+            # --- API Keys management ---
+            st.markdown('<p class="section-header">API Keys</p>', unsafe_allow_html=True)
+
+            API_KEY_PROVIDERS = [
+                {"label": "Groq",       "env_var": "GROQ_API_KEY",       "prefix": "gsk_",   "placeholder": "gsk_xxxxxxxxxxxx",      "help": "Get from console.groq.com/keys"},
+                {"label": "Google",     "env_var": "GOOGLE_API_KEY",     "prefix": "AIza",    "placeholder": "AIzaSyxxxxxxxxxxxx",    "help": "Get from aistudio.google.com/apikey"},
+                {"label": "Perplexity", "env_var": "PERPLEXITY_API_KEY", "prefix": "pplx-",   "placeholder": "pplx-xxxxxxxxxxxx",     "help": "Get from perplexity.ai/settings/api (optional)"},
+                {"label": "OpenAI",     "env_var": "OPENAI_API_KEY",     "prefix": "sk-",     "placeholder": "sk-xxxxxxxxxxxx",       "help": "Get from platform.openai.com/api-keys"},
+                {"label": "Anthropic",  "env_var": "ANTHROPIC_API_KEY",  "prefix": "sk-ant-", "placeholder": "sk-ant-xxxxxxxxxxxx",   "help": "Get from console.anthropic.com/settings/keys"},
+            ]
+
+            for provider in API_KEY_PROVIDERS:
+                current_val = os.getenv(provider["env_var"])
+                is_set = bool(current_val)
+                status_dot = "🟢" if is_set else "🔴"
+                masked_val = "" if not current_val else provider["prefix"] + "*" * 20
+
+                key_input = st.text_input(
+                    f"{status_dot} {provider['label']}",
+                    value=masked_val,
+                    type="password",
+                    placeholder=provider["placeholder"],
+                    help=provider["help"],
+                    key=f"apikey_{provider['env_var']}",
+                    label_visibility="visible"
+                )
+                col_l, col_r = st.columns([1, 1])
+                if is_set:
+                    with col_r:
+                        if st.button("Clear", key=f"clear_{provider['env_var']}", use_container_width=True):
+                            save_to_env(provider["env_var"], "")
+                            os.environ.pop(provider["env_var"], None)
+                            st.rerun()
+                elif key_input and not key_input.startswith(provider["prefix"] + "*"):
+                    with col_l:
+                        if st.button("Save", key=f"save_{provider['env_var']}", use_container_width=True):
+                            save_to_env(provider["env_var"], key_input)
+                            st.success(f"{provider['label']} key saved!")
+                            st.rerun()
+
+            st.markdown("---")
 
             st.markdown('<p class="section-header">Data Source</p>', unsafe_allow_html=True)
             source = st.radio(
@@ -1911,6 +2164,123 @@ def main():
                         st.caption(f"{name}: {info.get('status', '?')} - {info.get('detail', '')}")
                 except Exception as e:
                     st.error(f"Health check failed: {e}")
+
+            # --- Writing Tone ---
+            st.markdown("---")
+            st.markdown('<p class="section-header">Writing Tone</p>', unsafe_allow_html=True)
+
+            try:
+                prefs = UserPreferences()
+                all_profiles = prefs.list_all_profiles()
+                profile_names = list(all_profiles.keys())
+
+                # Determine current selection index
+                current_active = st.session_state.active_tone or prefs.get_active_profile().name
+                if current_active in profile_names:
+                    default_index = profile_names.index(current_active)
+                else:
+                    default_index = 0
+
+                selected_tone = st.selectbox(
+                    "Active Tone",
+                    options=profile_names,
+                    index=default_index,
+                    format_func=lambda x: f"{x} ({'custom' if all_profiles.get(x) == 'custom' else 'preset'})",
+                    key="tone_selector",
+                    label_visibility="collapsed",
+                )
+
+                # Apply selection if changed
+                if selected_tone != current_active:
+                    try:
+                        prefs.set_active_profile(selected_tone)
+                        st.session_state.active_tone = selected_tone
+                    except KeyError as e:
+                        st.error(str(e))
+
+                # Show description of selected tone
+                try:
+                    if selected_tone in (prefs.list_all_profiles()):
+                        active_profile = prefs.get_active_profile()
+                        st.caption(active_profile.description)
+                except Exception:
+                    pass
+
+                # Learning indicator
+                stats = prefs.get_feedback_stats()
+                if stats.get("learning_active"):
+                    st.caption(f"Tone adapting from {stats['total']} feedback points")
+
+            except Exception as e:
+                st.error(f"Tone system error: {e}")
+
+            # --- Custom Tone (Infer from Sample) ---
+            with st.expander("Custom Tone"):
+                sample_text = st.text_area(
+                    "Paste a writing sample",
+                    height=120,
+                    key="tone_sample_text",
+                    placeholder="Paste text from an article whose tone you want to replicate...",
+                )
+                sample_url = st.text_input(
+                    "Or enter a URL",
+                    key="tone_sample_url",
+                    placeholder="https://example.com/article",
+                )
+
+                if st.button("Analyze Tone", key="analyze_tone_btn", use_container_width=True):
+                    if not sample_text and not sample_url:
+                        st.warning("Provide a writing sample or URL to analyze.")
+                    else:
+                        try:
+                            engine = ToneInferenceEngine()
+                            with st.spinner("Analyzing tone..."):
+                                if sample_text and len(sample_text.strip()) >= 50:
+                                    inferred = engine.infer_from_text_sync(sample_text)
+                                elif sample_url:
+                                    inferred = engine.infer_from_url_sync(sample_url)
+                                else:
+                                    st.warning("Text sample must be at least 50 characters.")
+                                    inferred = None
+
+                            if inferred:
+                                st.session_state.tone_inference_result = inferred
+                                st.success(f"Detected: {inferred.name}")
+                        except Exception as e:
+                            st.error(f"Tone analysis failed: {e}")
+
+                # Show inference result if available
+                inferred_profile = st.session_state.get("tone_inference_result")
+                if inferred_profile:
+                    st.markdown("---")
+                    st.markdown(f"**{inferred_profile.name}**")
+                    st.caption(inferred_profile.description)
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.metric("Formality", f"{inferred_profile.formality_level:.1f}")
+                    with col_b:
+                        st.metric("Technical Depth", f"{inferred_profile.technical_depth:.1f}")
+                    st.caption(f"Personality: {inferred_profile.personality}")
+                    if inferred_profile.confidence_score is not None:
+                        st.caption(f"Confidence: {inferred_profile.confidence_score:.0%}")
+
+                    save_name = st.text_input(
+                        "Save as",
+                        value=inferred_profile.name,
+                        key="tone_save_name",
+                    )
+                    if st.button("Save Profile", key="save_tone_profile_btn", use_container_width=True):
+                        try:
+                            to_save = inferred_profile.model_copy(update={"name": save_name, "source": "custom"})
+                            prefs_save = UserPreferences()
+                            prefs_save.save_custom_profile(to_save)
+                            prefs_save.set_active_profile(save_name)
+                            st.session_state.active_tone = save_name
+                            st.session_state.tone_inference_result = None
+                            st.success(f"Saved and activated: {save_name}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to save profile: {e}")
 
     # Main content
     if st.session_state.viewing_history:
@@ -2246,6 +2616,47 @@ def main():
         st.markdown('<p class="section-header">Article Preview</p>', unsafe_allow_html=True)
         with st.expander("View Full Article", expanded=True):
             st.markdown(st.session_state.article_content)
+
+        # Tone feedback buttons
+        st.markdown('<p class="section-header">Tone Feedback</p>', unsafe_allow_html=True)
+        article_id = st.session_state.get("filepath", "unknown")
+        fb_col1, fb_col2, fb_col3, fb_col4 = st.columns(4)
+        with fb_col1:
+            if st.button("Use as-is", key="fb_accept", use_container_width=True):
+                try:
+                    UserPreferences().log_feedback(str(article_id), "accepted")
+                    st.success("Feedback logged")
+                except Exception:
+                    pass
+        with fb_col2:
+            if st.button("More formal", key="fb_formal", use_container_width=True):
+                try:
+                    UserPreferences().log_feedback(str(article_id), "tone_adjustment_formal")
+                    st.info("Noted: more formal")
+                except Exception:
+                    pass
+        with fb_col3:
+            if st.button("More casual", key="fb_casual", use_container_width=True):
+                try:
+                    UserPreferences().log_feedback(str(article_id), "tone_adjustment_casual")
+                    st.info("Noted: more casual")
+                except Exception:
+                    pass
+        with fb_col4:
+            if st.button("More technical", key="fb_technical", use_container_width=True):
+                try:
+                    UserPreferences().log_feedback(str(article_id), "tone_adjustment_technical")
+                    st.info("Noted: more technical")
+                except Exception:
+                    pass
+
+        # Learning indicator
+        try:
+            _fb_stats = UserPreferences().get_feedback_stats()
+            if _fb_stats.get("learning_active"):
+                st.caption(f"Tone adapting from {_fb_stats['total']} feedback points")
+        except Exception:
+            pass
 
         # Generated images
         if st.session_state.image_paths:

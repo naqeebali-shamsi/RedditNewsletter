@@ -1,0 +1,539 @@
+{
+  "meta": {
+    "project": "Voice Transformation System",
+    "prd": ".taskmaster/docs/prd.md",
+    "created": "2026-01-07",
+    "total_tasks": 15,
+    "phases": 5
+  },
+  "tasks": [
+    {
+      "id": "TASK-001",
+      "title": "Add source_type field to signal schema",
+      "phase": 1,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-001"],
+      "dependencies": [],
+      "estimated_minutes": 30,
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Identify all signal data structures in codebase",
+          "status": "pending"
+        },
+        {
+          "id": "1.2",
+          "title": "Add source_type field with type hint and default value",
+          "status": "pending"
+        },
+        {
+          "id": "1.3",
+          "title": "Update any TypedDict or dataclass definitions",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "source_type field exists in signal schema",
+        "Field accepts 'external' or 'internal' values",
+        "Default value is 'external' for safety"
+      ]
+    },
+    {
+      "id": "TASK-002",
+      "title": "Update fetch_reddit.py to set source_type='external'",
+      "phase": 1,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-002"],
+      "dependencies": ["TASK-001"],
+      "estimated_minutes": 20,
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Locate signal creation in fetch_reddit.py",
+          "status": "pending"
+        },
+        {
+          "id": "2.2",
+          "title": "Add source_type='external' to signal dict",
+          "status": "pending"
+        },
+        {
+          "id": "2.3",
+          "title": "Test with sample Reddit fetch",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "All signals from Reddit have source_type='external'",
+        "Existing functionality unchanged"
+      ]
+    },
+    {
+      "id": "TASK-003",
+      "title": "Update fetch_github.py to set source_type='internal'",
+      "phase": 1,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-003"],
+      "dependencies": ["TASK-001"],
+      "estimated_minutes": 20,
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Locate signal creation in fetch_github.py",
+          "status": "pending"
+        },
+        {
+          "id": "3.2",
+          "title": "Add source_type='internal' to signal dict",
+          "status": "pending"
+        },
+        {
+          "id": "3.3",
+          "title": "Test with sample GitHub fetch",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "All signals from GitHub have source_type='internal'",
+        "Existing functionality unchanged"
+      ]
+    },
+    {
+      "id": "TASK-004",
+      "title": "Create voice_rules.md directive",
+      "phase": 2,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-006", "REQ-007", "REQ-008", "REQ-009"],
+      "dependencies": [],
+      "estimated_minutes": 45,
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Create directives/voice_rules.md file",
+          "status": "pending"
+        },
+        {
+          "id": "4.2",
+          "title": "Document forbidden words list for external voice",
+          "status": "pending"
+        },
+        {
+          "id": "4.3",
+          "title": "Document allowed alternatives for external voice",
+          "status": "pending"
+        },
+        {
+          "id": "4.4",
+          "title": "Document internal voice guidelines",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "Directive exists at directives/voice_rules.md",
+        "Complete forbidden/allowed word lists",
+        "Clear instructions for both voice types"
+      ]
+    },
+    {
+      "id": "TASK-005",
+      "title": "Create external voice prompt template",
+      "phase": 2,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-006", "REQ-008", "REQ-009"],
+      "dependencies": ["TASK-004"],
+      "estimated_minutes": 60,
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Draft Journalist Observer prompt template",
+          "status": "pending"
+        },
+        {
+          "id": "5.2",
+          "title": "Include forbidden words section",
+          "status": "pending"
+        },
+        {
+          "id": "5.3",
+          "title": "Include allowed alternatives section",
+          "status": "pending"
+        },
+        {
+          "id": "5.4",
+          "title": "Add quality preservation instructions",
+          "status": "pending"
+        },
+        {
+          "id": "5.5",
+          "title": "Test prompt with sample generation",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "Prompt generates content without ownership pronouns",
+        "Content quality matches current baseline",
+        "Emotional hooks preserved"
+      ]
+    },
+    {
+      "id": "TASK-006",
+      "title": "Create internal voice prompt template",
+      "phase": 2,
+      "priority": "medium",
+      "status": "pending",
+      "requirements": ["REQ-007"],
+      "dependencies": ["TASK-004"],
+      "estimated_minutes": 30,
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Draft Practitioner Owner prompt template",
+          "status": "pending"
+        },
+        {
+          "id": "6.2",
+          "title": "Ensure ownership voice is encouraged",
+          "status": "pending"
+        },
+        {
+          "id": "6.3",
+          "title": "Test prompt maintains current voice style",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "Prompt generates content with ownership pronouns",
+        "Matches current article style",
+        "Battle-scarred authentic tone preserved"
+      ]
+    },
+    {
+      "id": "TASK-007",
+      "title": "Implement voice selector in generate_drafts.py",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-010"],
+      "dependencies": ["TASK-001", "TASK-005", "TASK-006"],
+      "estimated_minutes": 45,
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Read current generate_drafts.py implementation",
+          "status": "pending"
+        },
+        {
+          "id": "7.2",
+          "title": "Add voice selector function",
+          "status": "pending"
+        },
+        {
+          "id": "7.3",
+          "title": "Integrate selector with prompt construction",
+          "status": "pending"
+        },
+        {
+          "id": "7.4",
+          "title": "Handle missing source_type (default to external)",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "Voice selector reads source_type from signal",
+        "Correct template selected for each source type",
+        "Graceful fallback for missing source_type"
+      ]
+    },
+    {
+      "id": "TASK-008",
+      "title": "Implement voice selector in generate_medium_full.py",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-010"],
+      "dependencies": ["TASK-007"],
+      "estimated_minutes": 30,
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Read current generate_medium_full.py implementation",
+          "status": "pending"
+        },
+        {
+          "id": "8.2",
+          "title": "Replicate voice selector pattern from TASK-007",
+          "status": "pending"
+        },
+        {
+          "id": "8.3",
+          "title": "Ensure consistency between both generators",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "Voice selection works identically to generate_drafts.py",
+        "Both generators use same voice rules"
+      ]
+    },
+    {
+      "id": "TASK-009",
+      "title": "Test voice selection with sample signals",
+      "phase": 3,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-010"],
+      "dependencies": ["TASK-008"],
+      "estimated_minutes": 40,
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Create test signal with source_type='external'",
+          "status": "pending"
+        },
+        {
+          "id": "9.2",
+          "title": "Create test signal with source_type='internal'",
+          "status": "pending"
+        },
+        {
+          "id": "9.3",
+          "title": "Generate articles from both signals",
+          "status": "pending"
+        },
+        {
+          "id": "9.4",
+          "title": "Verify correct voice used in each",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "External signal produces observer voice article",
+        "Internal signal produces ownership voice article",
+        "Both articles maintain quality"
+      ]
+    },
+    {
+      "id": "TASK-010",
+      "title": "Create validate_voice.py script",
+      "phase": 4,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-011", "REQ-013"],
+      "dependencies": ["TASK-004"],
+      "estimated_minutes": 60,
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Create execution/validate_voice.py",
+          "status": "pending"
+        },
+        {
+          "id": "10.2",
+          "title": "Implement forbidden word detection",
+          "status": "pending"
+        },
+        {
+          "id": "10.3",
+          "title": "Return line numbers and context for violations",
+          "status": "pending"
+        },
+        {
+          "id": "10.4",
+          "title": "Generate suggested replacements",
+          "status": "pending"
+        },
+        {
+          "id": "10.5",
+          "title": "Add unit tests for validation logic",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "Script detects all forbidden pronouns",
+        "Output includes line number, word, and suggestion",
+        "100% detection rate on test cases"
+      ]
+    },
+    {
+      "id": "TASK-011",
+      "title": "Integrate validation into generation pipeline",
+      "phase": 4,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-012"],
+      "dependencies": ["TASK-010", "TASK-008"],
+      "estimated_minutes": 30,
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Import validate_voice in generate scripts",
+          "status": "pending"
+        },
+        {
+          "id": "11.2",
+          "title": "Call validation after draft generation",
+          "status": "pending"
+        },
+        {
+          "id": "11.3",
+          "title": "Log validation results",
+          "status": "pending"
+        },
+        {
+          "id": "11.4",
+          "title": "Handle validation failures gracefully",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "Validation runs automatically after generation",
+        "Results logged to console and/or file",
+        "Violations don't crash pipeline"
+      ]
+    },
+    {
+      "id": "TASK-012",
+      "title": "Add validation logging and reporting",
+      "phase": 4,
+      "priority": "medium",
+      "status": "pending",
+      "requirements": ["REQ-015"],
+      "dependencies": ["TASK-011"],
+      "estimated_minutes": 25,
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Create .tmp/validation_log.json structure",
+          "status": "pending"
+        },
+        {
+          "id": "12.2",
+          "title": "Append validation results to log",
+          "status": "pending"
+        },
+        {
+          "id": "12.3",
+          "title": "Add summary statistics tracking",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "All validation runs logged with timestamp",
+        "Log includes pass/fail, violation count, file name",
+        "Historical data preserved for analysis"
+      ]
+    },
+    {
+      "id": "TASK-013",
+      "title": "End-to-end testing with real signals",
+      "phase": 5,
+      "priority": "high",
+      "status": "pending",
+      "requirements": ["REQ-016", "REQ-017", "REQ-018", "REQ-019"],
+      "dependencies": ["TASK-012"],
+      "estimated_minutes": 60,
+      "subtasks": [
+        {
+          "id": "13.1",
+          "title": "Fetch fresh Reddit signal",
+          "status": "pending"
+        },
+        {
+          "id": "13.2",
+          "title": "Generate article and run validation",
+          "status": "pending"
+        },
+        {
+          "id": "13.3",
+          "title": "Verify 0 ownership pronouns in output",
+          "status": "pending"
+        },
+        {
+          "id": "13.4",
+          "title": "Manual quality review vs baseline",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "External source article has 0 ownership pronouns",
+        "Article quality matches or exceeds baseline",
+        "Emotional hooks preserved",
+        "Pipeline completes without errors"
+      ]
+    },
+    {
+      "id": "TASK-014",
+      "title": "Quality comparison (before/after voice transformation)",
+      "phase": 5,
+      "priority": "medium",
+      "status": "pending",
+      "requirements": ["REQ-016", "REQ-17", "REQ-18"],
+      "dependencies": ["TASK-013"],
+      "estimated_minutes": 45,
+      "subtasks": [
+        {
+          "id": "14.1",
+          "title": "Select 3 existing ownership-voice drafts",
+          "status": "pending"
+        },
+        {
+          "id": "14.2",
+          "title": "Regenerate same signals with new system",
+          "status": "pending"
+        },
+        {
+          "id": "14.3",
+          "title": "Side-by-side comparison",
+          "status": "pending"
+        },
+        {
+          "id": "14.4",
+          "title": "Document quality assessment",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "No quality degradation observed",
+        "Observer voice feels natural",
+        "Documented comparison for future reference"
+      ]
+    },
+    {
+      "id": "TASK-015",
+      "title": "Update documentation and directives",
+      "phase": 5,
+      "priority": "medium",
+      "status": "pending",
+      "requirements": [],
+      "dependencies": ["TASK-014"],
+      "estimated_minutes": 30,
+      "subtasks": [
+        {
+          "id": "15.1",
+          "title": "Update produce_content.md directive",
+          "status": "pending"
+        },
+        {
+          "id": "15.2",
+          "title": "Document voice system in CLAUDE.md if needed",
+          "status": "pending"
+        },
+        {
+          "id": "15.3",
+          "title": "Add inline code comments explaining voice selection",
+          "status": "pending"
+        }
+      ],
+      "acceptance_criteria": [
+        "Voice system documented for future reference",
+        "Directives updated with new workflow",
+        "Code comments explain voice selection logic"
+      ]
+    }
+  ]
+}

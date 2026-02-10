@@ -19,7 +19,9 @@ Usage:
 
 import argparse
 import json
+import re
 import sys
+from collections import Counter
 from pathlib import Path
 from execution.utils.datetime_utils import utc_iso
 from dataclasses import dataclass, asdict
@@ -55,6 +57,11 @@ class QualityGateResult:
     false_claim_count: int = 0
     verification_summary: str = ""
     style_score: float = 0.0
+    deterministic_failures: List[str] = None  # Hard-coded check failures
+
+    def __post_init__(self):
+        if self.deterministic_failures is None:
+            self.deterministic_failures = []
 
 
 class QualityGate:
@@ -67,15 +74,16 @@ class QualityGate:
     - EditorAgent (final polish)
     """
 
-    def __init__(self, max_iterations: int = 3, verbose: bool = True, 
-                 require_verification: bool = True):
+    def __init__(self, max_iterations: int = 3, verbose: bool = True,
+                 require_verification: bool = True, tone_profile=None):
         self.max_iterations = max_iterations
         self.verbose = verbose
         self.require_verification = require_verification
+        self.tone_profile = tone_profile
 
-        # Initialize agents
+        # Initialize agents (pass tone profile to writer)
         self.panel = AdversarialPanelAgent()
-        self.writer = WriterAgent()
+        self.writer = WriterAgent(tone_profile=tone_profile)
         self.editor = EditorAgent()
 
         # Fact verification (optional based on config)
@@ -124,6 +132,60 @@ class QualityGate:
         if self.verbose:
             print(message)
 
+    def _deterministic_checks(self, content: str) -> Tuple[bool, List[str]]:
+        """Hard-coded checks that catch obvious quality failures without LLM."""
+        failures = []
+        lines = content.split('\n')
+
+        # 1. Markdown structure: must have at least 2 H2 headings
+        h2_count = sum(1 for l in lines if l.strip().startswith('## '))
+        if h2_count < 2:
+            failures.append(f"STRUCTURE: Only {h2_count} section headings (## ). Minimum 2 required.")
+
+        # 2. Must have at least 3 hyperlinks for a technical article
+        link_count = len(re.findall(r'\[([^\]]+)\]\(https?://[^\)]+\)', content))
+        if link_count < 3:
+            failures.append(f"CITATIONS: Only {link_count} hyperlinks found. Minimum 3 required.")
+
+        # 3. Forbidden phrases (hard-coded, not LLM-detected)
+        forbidden = [
+            "In conclusion",
+            "In this article",
+            "In today's fast-paced world",
+            "game-changer",
+            "paradigm shift",
+            "It goes without saying",
+            "unlock the full potential",
+            "What's been your experience?",
+            "Drop a comment below",
+        ]
+        for phrase in forbidden:
+            if phrase.lower() in content.lower():
+                failures.append(f"FORBIDDEN PHRASE: '{phrase}' detected")
+
+        # 4. Repetition check: no phrase of 4+ words should appear more than 3 times
+        words = content.lower().split()
+        four_grams = [' '.join(words[i:i+4]) for i in range(len(words)-3)]
+        for gram, count in Counter(four_grams).most_common(5):
+            if count > 3:
+                failures.append(f"REPETITION: '{gram}' appears {count} times")
+
+        # 5. Phantom evidence detection
+        phantom_patterns = [
+            r"(?:studies|research|data) (?:show|indicate|suggest|prove)s?(?! that .{20,})",
+            r"according to (?:concrete |recent |latest )?(?:data|research|studies)(?!,? (?:from|by|published|in) )",
+            r"(?:one|a recent|a new) study (?:found|showed|revealed)(?! (?:that|by|from|in|at) .{15,})",
+            r"(?:many |most |some )?experts (?:recommend|suggest|say|believe)(?! (?:that|including|such as|like) .{10,})",
+        ]
+        for pattern in phantom_patterns:
+            matches = re.findall(pattern, content, re.IGNORECASE)
+            if matches:
+                match_text = matches[0] if isinstance(matches[0], str) else str(matches[0])
+                failures.append(f"PHANTOM EVIDENCE: Unsourced claim pattern: '{match_text[:60]}...'")
+
+        passed = len(failures) == 0
+        return passed, failures
+
     def process(
         self,
         content: str,
@@ -162,7 +224,7 @@ class QualityGate:
         # Step 0: Fact verification (if enabled)
         verification_result = {"passed": True, "verified_count": 0, "unverified_count": 0, "false_count": 0, "summary": ""}
         if self.require_verification and self.fact_verifier:
-            self._log("🔍 Running fact verification...")
+            self._log("[VERIFY] Running fact verification...")
             try:
                 verification_result = self.verify_facts(current_content, source_context or "")
                 self._log(f"   Verification: {'PASSED' if verification_result.get('passed', False) else 'NEEDS REVIEW'}")
@@ -170,7 +232,7 @@ class QualityGate:
 
                 # Block if verification fails critically (false claims)
                 if verification_result.get('false_count', 0) > 0:
-                    self._log("\n❌ BLOCKING: False claims detected - cannot proceed")
+                    self._log("\n[BLOCKED] False claims detected - cannot proceed")
                     return QualityGateResult(
                         passed=False,
                         final_score=0.0,
@@ -195,7 +257,8 @@ class QualityGate:
         try:
             from execution.agents.style_enforcer import StyleEnforcerAgent
             style_enforcer = StyleEnforcerAgent(
-                profile_path=str(Path(__file__).parent / "voice_profile.json")
+                profile_path=str(Path(__file__).parent / "voice_profile.json"),
+                tone_profile=self.tone_profile
             )
             style_result = style_enforcer.score(current_content, content_type="article" if platform == "medium" else "linkedin")
             self._log(f"   Style Score: {style_result.total}/100 ({'PASS' if style_result.passed else 'NEEDS WORK'})")
@@ -206,15 +269,24 @@ class QualityGate:
         except Exception as e:
             self._log(f"   Style scoring error: {e}")
 
+        # Step 0.75: Deterministic pre-checks (no LLM needed)
+        det_passed, det_failures = self._deterministic_checks(current_content)
+        if not det_passed:
+            self._log(f"\n  DETERMINISTIC FAILURES ({len(det_failures)}):")
+            for f in det_failures:
+                self._log(f"    - {f}")
+        else:
+            self._log("\n  DETERMINISTIC CHECKS: All passed")
+
         while iteration < self.max_iterations:
             iteration += 1
 
-            self._log(f"\n{'─' * 40}")
+            self._log(f"\n{'-' * 40}")
             self._log(f"ITERATION {iteration}/{self.max_iterations}")
-            self._log(f"{'─' * 40}")
+            self._log(f"{'-' * 40}")
 
             # Step 1: Review with adversarial panel (voice-aware)
-            self._log("\n🔍 Running adversarial panel review...")
+            self._log("\n[REVIEW] Running adversarial panel review...")
             verdict = self.panel.review_content(
                 content=current_content,
                 platform=platform,
@@ -236,38 +308,57 @@ class QualityGate:
 
             # Step 2: Check if passed
             if verdict.passed:
-                self._log("\n✅ QUALITY GATE PASSED!")
-                self._log(f"   Final Score: {verdict.average_score}/10")
+                # Re-run deterministic checks before accepting LLM pass
+                det_passed_now, det_failures_now = self._deterministic_checks(current_content)
+                if not det_passed_now:
+                    self._log(f"\n  OVERRIDDEN: LLM passed but {len(det_failures_now)} deterministic checks still fail:")
+                    for f in det_failures_now:
+                        self._log(f"    - {f}")
+                    # Update det_failures for the revision context
+                    det_failures = det_failures_now
+                    # Don't return — fall through to revision or escalation
+                else:
+                    self._log("\n  QUALITY GATE PASSED!")
+                    self._log(f"   Final Score: {verdict.average_score}/10")
 
-                # Final polish by editor
-                self._log("\n✨ Running final editor polish...")
-                final_content = self._final_polish(current_content, platform)
+                    # Final polish by editor
+                    self._log("\n  Running final editor polish...")
+                    final_content = self._final_polish(current_content, platform)
 
-                return QualityGateResult(
-                    passed=True,
-                    final_score=verdict.average_score,
-                    iterations_used=iteration,
-                    max_iterations=self.max_iterations,
-                    final_content=final_content,
-                    revision_history=revision_history,
-                    escalated=False,
-                    timestamp=utc_iso(),
-                    verification_passed=verification_result.get("passed", True),
-                    verified_claim_count=verification_result.get("verified_count", 0),
-                    unverified_claim_count=verification_result.get("unverified_count", 0),
-                    false_claim_count=verification_result.get("false_count", 0),
-                    verification_summary=verification_result.get("summary", ""),
-                    style_score=style_result.total if style_result else 0.0
-                )
+                    return QualityGateResult(
+                        passed=True,
+                        final_score=verdict.average_score,
+                        iterations_used=iteration,
+                        max_iterations=self.max_iterations,
+                        final_content=final_content,
+                        revision_history=revision_history,
+                        escalated=False,
+                        timestamp=utc_iso(),
+                        verification_passed=verification_result.get("passed", True),
+                        verified_claim_count=verification_result.get("verified_count", 0),
+                        unverified_claim_count=verification_result.get("unverified_count", 0),
+                        false_claim_count=verification_result.get("false_count", 0),
+                        verification_summary=verification_result.get("summary", ""),
+                        style_score=style_result.total if style_result else 0.0
+                    )
 
             # Step 3: Generate fix instructions and revise
             if iteration < self.max_iterations:
-                self._log(f"\n⚠️ Score {verdict.average_score}/10 - Below threshold (7.0)")
-                self._log("📝 Generating revision instructions...")
+                self._log(f"\n  Score {verdict.average_score}/10 - Below threshold (7.0)")
+                self._log("  Generating revision instructions...")
 
                 fix_instructions = self.panel.generate_fix_instructions(verdict)
 
-                self._log("✍️ Writer revising content...")
+                # Prepend deterministic failures as mandatory fixes
+                if det_failures:
+                    det_fix_block = "\n### MANDATORY DETERMINISTIC FIXES (must be resolved):\n"
+                    det_fix_block += "These are hard-coded checks that MUST pass. No exceptions.\n"
+                    for f in det_failures:
+                        det_fix_block += f"- {f}\n"
+                    det_fix_block += "\nAddress ALL of the above before any other fixes.\n\n"
+                    fix_instructions = det_fix_block + fix_instructions
+
+                self._log("  Writer revising content...")
                 current_content = self._revise_content(
                     current_content,
                     fix_instructions,
@@ -276,13 +367,29 @@ class QualityGate:
                 )
 
                 self._log(f"   Revised content: {len(current_content)} chars")
+
+                # Re-run deterministic checks after revision to update failures
+                det_passed, det_failures = self._deterministic_checks(current_content)
+                if det_passed:
+                    self._log("   Deterministic checks now passing")
+                else:
+                    self._log(f"   Deterministic checks: {len(det_failures)} still failing")
             else:
-                self._log(f"\n❌ Max iterations reached without passing")
+                self._log(f"\n  Max iterations reached without passing")
+
+        # Final deterministic check after all iterations
+        final_det_passed, final_det_failures = self._deterministic_checks(current_content)
+        if not final_det_passed:
+            self._log(f"\n  FINAL DETERMINISTIC CHECK: {len(final_det_failures)} failures remain")
+            for f in final_det_failures:
+                self._log(f"    - {f}")
 
         # Escalation - max iterations hit
         self._log("\n" + "=" * 60)
-        self._log("⚠️ ESCALATION: Quality gate could not pass content")
+        self._log("  ESCALATION: Quality gate could not pass content")
         self._log(f"   Best Score Achieved: {max(h['score'] for h in revision_history)}/10")
+        if not final_det_passed:
+            self._log(f"   Deterministic Failures: {len(final_det_failures)}")
         self._log("   Content requires human review")
         self._log("=" * 60)
 
@@ -300,7 +407,8 @@ class QualityGate:
             unverified_claim_count=verification_result.get("unverified_count", 0),
             false_claim_count=verification_result.get("false_count", 0),
             verification_summary=verification_result.get("summary", ""),
-            style_score=style_result.total if style_result else 0.0
+            style_score=style_result.total if style_result else 0.0,
+            deterministic_failures=final_det_failures if not final_det_passed else []
         )
 
     def _revise_content(
@@ -459,7 +567,7 @@ def main():
         if result.revision_history:
             print(f"\nScore Progression:")
             for h in result.revision_history:
-                status = "✓" if h['passed'] else "✗"
+                status = "PASS" if h['passed'] else "FAIL"
                 print(f"  Iteration {h['iteration']}: {h['score']}/10 {status}")
 
         print(f"{'=' * 60}\n")

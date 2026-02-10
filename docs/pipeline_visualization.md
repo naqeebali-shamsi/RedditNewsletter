@@ -1,0 +1,434 @@
+# GhostWriter Pipeline Visualization
+
+## Complete Flow: UI Action → Final Output
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                    STREAMLIT UI                                         │
+│                                     (app.py)                                            │
+│  ┌─────────────────────────────────────────────────────────────────────────────────┐   │
+│  │  [Data Source Toggle]     [Generate Article Button]      [History Sidebar]      │   │
+│  │   ○ Reddit                     ▼ CLICK                    • Recent drafts       │   │
+│  │   ○ GitHub                                                • One-click load      │   │
+│  └─────────────────────────────────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────┬────────────────────────────────────────────────┘
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                              PHASE 1: TOPIC DISCOVERY                                   │
+│                                    (0% → 10%)                                           │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│  ┌──────────────────────────┐          ┌──────────────────────────┐                    │
+│  │   REDDIT PATH            │    OR    │   GITHUB PATH            │                    │
+│  │   ─────────────          │          │   ───────────            │                    │
+│  │                          │          │                          │                    │
+│  │  fetch_reddit.py         │          │  fetch_github.py         │                    │
+│  │  └─► RSS feeds from      │          │  └─► API calls to repos  │                    │
+│  │      r/LocalLLaMA        │          │      microsoft/autogen   │                    │
+│  │      r/mlops             │          │      langchain-ai/...    │                    │
+│  │      r/LLMDevs           │          │      (or custom repos)   │                    │
+│  │          │               │          │          │               │                    │
+│  │          ▼               │          │          ▼               │                    │
+│  │  TopicResearchAgent      │          │  CommitAnalysisAgent     │                    │
+│  │  └─► Analyzes posts      │          │  └─► Extracts themes     │                    │
+│  │  └─► Scores relevance    │          │  └─► Groups by topic     │                    │
+│  │  └─► Selects best topic  │          │  └─► Selects best topic  │                    │
+│  └──────────┬───────────────┘          └───────────┬──────────────┘                    │
+│             │                                      │                                    │
+│             └──────────────────┬───────────────────┘                                    │
+│                                ▼                                                        │
+│                    ┌───────────────────────┐                                           │
+│                    │  SELECTED TOPIC       │                                           │
+│                    │  + Reasoning          │                                           │
+│                    │  + Angle/Hook         │                                           │
+│                    └───────────┬───────────┘                                           │
+└────────────────────────────────┼────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                           PHASE 2: AGENT INITIALIZATION                                 │
+│                                   (10% → 15%)                                           │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                  │
+│    │   EDITOR    │  │   CRITIC    │  │   WRITER    │  │   VISUALS   │                  │
+│    │   AGENT     │  │   AGENT     │  │   AGENT     │  │   AGENT     │                  │
+│    │             │  │             │  │             │  │             │                  │
+│    │ Creates     │  │ Reviews &   │  │ Drafts      │  │ Suggests &  │                  │
+│    │ outlines    │  │ critiques   │  │ content     │  │ generates   │                  │
+│    │             │  │             │  │             │  │ images      │                  │
+│    │ Model:      │  │ Model:      │  │ Model:      │  │ Model:      │                  │
+│    │ llama-3.3   │  │ llama-3.3   │  │ llama-3.1   │  │ gemini-2.0  │                  │
+│    │ -70b        │  │ -70b        │  │ -8b         │  │             │                  │
+│    └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘                  │
+│                                                                                         │
+└────────────────────────────────┬────────────────────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                            PHASE 3: OUTLINE CREATION                                    │
+│                                  (15% → 30%)                                            │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    ┌─────────────────────┐                                                             │
+│    │    EDITOR AGENT     │                                                             │
+│    │    create_outline() │────────────────────────────────────────┐                    │
+│    └─────────┬───────────┘                                        │                    │
+│              │                                                    │                    │
+│              ▼                                                    ▼                    │
+│    ┌─────────────────────┐         ┌─────────────────────────────────────────────┐    │
+│    │  INITIAL OUTLINE    │         │  GhostWriter Style Guide Requirements:      │    │
+│    │  - 5 Hook Options   │         │  • Aggressive hooks (no "In this article")  │    │
+│    │  - Opening Scene    │         │  • Story-first framing                      │    │
+│    │  - The Pivot        │         │  • Do/Stop/Check takeaways                  │    │
+│    │  - Body Structure   │         │  • Visual placeholders                      │    │
+│    │  - Visual Spots     │         └─────────────────────────────────────────────┘    │
+│    └─────────┬───────────┘                                                             │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────┐         ┌─────────────────────────────────────────────┐    │
+│    │    CRITIC AGENT     │         │  Critique Criteria:                         │    │
+│    │  critique_outline() │────────►│  • Logic gaps?                              │    │
+│    └─────────┬───────────┘         │  • Lack of technical depth?                 │    │
+│              │                     │  • Generic AI content smell?                │    │
+│              ▼                     └─────────────────────────────────────────────┘    │
+│    ┌─────────────────────┐                                                             │
+│    │   REFINED OUTLINE   │                                                             │
+│    │  (Incorporates      │                                                             │
+│    │   critique feedback)│                                                             │
+│    └─────────┬───────────┘                                                             │
+└──────────────┼──────────────────────────────────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                              PHASE 4: FIRST DRAFT                                       │
+│                                 (30% → 50%)                                             │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    ┌─────────────────────┐                                                             │
+│    │    WRITER AGENT     │                                                             │
+│    │   write_section()   │                                                             │
+│    └─────────┬───────────┘                                                             │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│    │                          QUALITY REQUIREMENTS                               │    │
+│    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │    │
+│    │  │ HOOK        │  │ SPECIFICITY │  │ MEMORABLE   │  │ STORY       │        │    │
+│    │  │ First 10    │  │ Numbers >   │  │ One quote-  │  │ 2-4 sentence│        │    │
+│    │  │ words must  │  │ vague words │  │ worthy line │  │ anecdote    │        │    │
+│    │  │ hook reader │  │             │  │             │  │             │        │    │
+│    │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │    │
+│    └─────────────────────────────────────────────────────────────────────────────┘    │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────┐                                                             │
+│    │     FIRST DRAFT     │                                                             │
+│    │   (~800-1500 words) │                                                             │
+│    └─────────┬───────────┘                                                             │
+└──────────────┼──────────────────────────────────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                          PHASE 5: SPECIALIST REFINEMENT                                 │
+│                                 (50% → 75%)                                             │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    Draft flows through 4 SPECIALIST AGENTS sequentially:                               │
+│                                                                                         │
+│    ┌───────────────────────────────────────────────────────────────────────────────┐   │
+│    │                                                                               │   │
+│    │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    │   │
+│    │  │    HOOK     │───►│ STORYTELLING│───►│   VOICE &   │───►│   VALUE     │    │   │
+│    │  │ SPECIALIST  │    │  ARCHITECT  │    │    TONE     │    │  DENSITY    │    │   │
+│    │  │             │    │             │    │ SPECIALIST  │    │ SPECIALIST  │    │   │
+│    │  │ • Rewrite   │    │ • Add 1-2   │    │             │    │             │    │   │
+│    │  │   title     │    │   personal  │    │ • Remove    │    │ • Every     │    │   │
+│    │  │ • Stop-the- │    │   moments   │    │   corporate │    │   paragraph │    │   │
+│    │  │   scroll    │    │ • Weave     │    │   speak     │    │   earns     │    │   │
+│    │  │   opening   │    │   naturally │    │ • Add wit   │    │   its place │    │   │
+│    │  │             │    │ • "I/you"   │    │ • Vary      │    │ • Concrete  │    │   │
+│    │  │             │    │   voice     │    │   rhythm    │    │   specifics │    │   │
+│    │  └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘    │   │
+│    │                                                                               │   │
+│    └───────────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                         │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────┐                                                             │
+│    │   REFINED DRAFT     │                                                             │
+│    │  (Specialist-       │                                                             │
+│    │   enhanced)         │                                                             │
+│    └─────────┬───────────┘                                                             │
+└──────────────┼──────────────────────────────────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                             PHASE 6: FINAL POLISH                                       │
+│                                (75% → 85%)                                              │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    ┌─────────────────────┐                                                             │
+│    │   FINAL EDITOR      │                                                             │
+│    │   (Specialist)      │                                                             │
+│    └─────────┬───────────┘                                                             │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│    │  POLISH TASKS:                                                              │    │
+│    │  • Strip internal labels/metadata                                           │    │
+│    │  • Ensure H1 title formatting                                               │    │
+│    │  • Smooth transitions                                                       │    │
+│    │  • Remove duplications from specialist passes                               │    │
+│    │  • Convert forced bullet lists to prose                                     │    │
+│    │  • Ensure ONE voice throughout                                              │    │
+│    └─────────────────────────────────────────────────────────────────────────────┘    │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────┐         ┌─────────────────────────────────────────────┐    │
+│    │    EDITOR AGENT     │         │  Review Checklist:                          │    │
+│    │   review_draft()    │────────►│  [ ] Personal story (not generic)?          │    │
+│    └─────────┬───────────┘         │  [ ] Authentic voice ("I built")?           │    │
+│              │                     │  [ ] Bold takeaway lists?                   │    │
+│              │                     │  [ ] Aggressive hook?                       │    │
+│              │                     │  [ ] Visual placeholders?                   │    │
+│              │                     │                                             │    │
+│              │                     │  → APPROVED or REVISE                       │    │
+│              │                     └─────────────────────────────────────────────┘    │
+│              │                                                                         │
+│              ▼                                                                         │
+│         ┌────┴────┐                                                                    │
+│         │ APPROVED │──────────────────────────────────────────────────────────────┐    │
+│         │ or      │                                                               │    │
+│         │ REVISE? │                                                               │    │
+│         └────┬────┘                                                               │    │
+│              │ REVISE                                                             │    │
+│              ▼                                                                    │    │
+│    ┌─────────────────────┐                                                        │    │
+│    │   WRITER AGENT      │                                                        │    │
+│    │  (Apply corrections)│                                                        │    │
+│    └─────────────────────┘                                                        │    │
+│              │                                                                    │    │
+│              └────────────────────────────────────────────────────────────────────┘    │
+└──────────────┬──────────────────────────────────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                    🆕 PHASE 7: ADVERSARIAL QUALITY GATE (NEW!)                          │
+│                                    (Optional)                                           │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    When using generate_drafts_v2.py or quality_gate.py:                                │
+│                                                                                         │
+│    ┌───────────────────────────────────────────────────────────────────────────────┐   │
+│    │                      ADVERSARIAL EXPERT PANEL                                 │   │
+│    │                                                                               │   │
+│    │   ┌─────────────────────────────────────────────────────────────────────┐    │   │
+│    │   │  AGENCY EXPERTS                    │  BRAND GIANTS                  │    │   │
+│    │   │  • Digital Commerce Partners       │  • Google (SEO/UX)             │    │   │
+│    │   │  • AWISEE (B2B SaaS)              │  • Apple (Simplicity)          │    │   │
+│    │   │  • Feldman Creative (Clarity)      │  • Zomato/Swiggy (Engagement)  │    │   │
+│    │   ├─────────────────────────────────────────────────────────────────────┤    │   │
+│    │   │  SEO SPECIALISTS                   │  CREATIVE HOUSES               │    │   │
+│    │   │  • Victorious (Technical SEO)      │  • Serviceplan (Awards)        │    │   │
+│    │   │  • Compose.ly (Enterprise QA)      │  • Emirates Graphic (Global)   │    │   │
+│    │   └─────────────────────────────────────────────────────────────────────┘    │   │
+│    │                                                                               │   │
+│    │   Each expert provides:                                                       │   │
+│    │   • Score (1-10)                                                              │   │
+│    │   • Specific failures                                                         │   │
+│    │   • Concrete fix instructions                                                 │   │
+│    │                                                                               │   │
+│    └───────────────────────────────────────────────────────────────────────────────┘   │
+│                              │                                                         │
+│                              ▼                                                         │
+│    ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│    │                        KILL PHRASE DETECTION                                │    │
+│    │                                                                             │    │
+│    │  ❌ "..."                    → PLACEHOLDER_TEXT                             │    │
+│    │  ❌ "What's been your..."    → WEAK_CTA                                     │    │
+│    │  ❌ "This aligns with..."    → TEMPLATE_PHRASE                              │    │
+│    │  ❌ "In this article"        → BORING_OPENER                                │    │
+│    │  ❌ "<!-- SC_OFF"            → HTML_ARTIFACT                                │    │
+│    │  ❌ "Contains X keywords"    → METADATA_LEAK                                │    │
+│    │                                                                             │    │
+│    │  Any violation → Score CAPPED at 4/10                                       │    │
+│    └─────────────────────────────────────────────────────────────────────────────┘    │
+│                              │                                                         │
+│                              ▼                                                         │
+│                     ┌────────────────┐                                                 │
+│                     │  SCORE >= 7/10 │                                                 │
+│                     │       ?        │                                                 │
+│                     └───────┬────────┘                                                 │
+│                             │                                                          │
+│              ┌──────────────┴──────────────┐                                          │
+│              ▼ NO                          ▼ YES                                      │
+│    ┌─────────────────────┐       ┌─────────────────────┐                              │
+│    │  Generate Fix       │       │      APPROVED       │                              │
+│    │  Instructions       │       │   → Continue to     │                              │
+│    │  → Writer revises   │       │     next phase      │                              │
+│    │  → Loop (max 3x)    │       └─────────────────────┘                              │
+│    └─────────────────────┘                                                             │
+│              │                                                                         │
+│              └──────► Iteration 3 failed? → ESCALATE (Human Review)                    │
+│                                                                                         │
+└──────────────┬──────────────────────────────────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                            PHASE 8: VISUAL GENERATION                                   │
+│                                  (85% → 95%)                                            │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    ┌─────────────────────┐                                                             │
+│    │    VISUALS AGENT    │                                                             │
+│    │   suggest_visuals() │                                                             │
+│    └─────────┬───────────┘                                                             │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│    │  VISUAL PLAN:                                                               │    │
+│    │  [                                                                          │    │
+│    │    {"concept": "Architecture Diagram", "prompt": "..."},                    │    │
+│    │    {"concept": "Comparison Chart", "prompt": "..."},                        │    │
+│    │    {"concept": "Process Flow", "prompt": "..."}                             │    │
+│    │  ]                                                                          │    │
+│    └─────────────────────────────────────────────────────────────────────────────┘    │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────┐                                                             │
+│    │ generate_all_visuals│                                                             │
+│    │ (Nano Banana Pro)   │                                                             │
+│    │                     │                                                             │
+│    │ Uses: Google Gemini │                                                             │
+│    │ Image Generation    │                                                             │
+│    └─────────┬───────────┘                                                             │
+│              │                                                                         │
+│              ▼                                                                         │
+│    ┌─────────────────────┐                                                             │
+│    │  GENERATED IMAGES   │                                                             │
+│    │  drafts/images/     │                                                             │
+│    │  ├─ visual_1_*.png  │                                                             │
+│    │  ├─ visual_2_*.png  │                                                             │
+│    │  └─ visual_3_*.png  │                                                             │
+│    └─────────┬───────────┘                                                             │
+└──────────────┼──────────────────────────────────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                              PHASE 9: FINAL OUTPUT                                      │
+│                                  (95% → 100%)                                           │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│    │                           FINAL ARTICLE                                     │    │
+│    │                                                                             │    │
+│    │   drafts/medium_full_20260107_230348.md                                     │    │
+│    │                                                                             │    │
+│    │   ┌─────────────────────────────────────────────────────────────────────┐  │    │
+│    │   │  # Why I Stopped Using RAG (And What I Use Instead)                 │  │    │
+│    │   │                                                                     │  │    │
+│    │   │  The $4,000 lesson that changed everything...                       │  │    │
+│    │   │                                                                     │  │    │
+│    │   │  ## The Problem Everyone's Ignoring                                 │  │    │
+│    │   │  [Content with specific numbers, stories, takeaways]                │  │    │
+│    │   │                                                                     │  │    │
+│    │   │  ## What Actually Works                                             │  │    │
+│    │   │  [Actionable insights, code examples]                               │  │    │
+│    │   │                                                                     │  │    │
+│    │   │  ## The Fix                                                         │  │    │
+│    │   │  [Concrete recommendations]                                         │  │    │
+│    │   │                                                                     │  │    │
+│    │   │  ---                                                                │  │    │
+│    │   │  ## Generated Images                                                │  │    │
+│    │   │  ![Visual 1](./images/visual_1.png)                                 │  │    │
+│    │   └─────────────────────────────────────────────────────────────────────┘  │    │
+│    │                                                                             │    │
+│    └─────────────────────────────────────────────────────────────────────────────┘    │
+│                                                                                         │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+
+                                         │
+                                         ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                             STREAMLIT UI: RESULTS                                       │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                         │
+│    ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│    │  ✅ Your Article is Ready!                                                  │    │
+│    │                                                                             │    │
+│    │  ┌─────────┐  ┌─────────┐  ┌─────────┐                                     │    │
+│    │  │  1,247  │  │    6    │  │    3    │                                     │    │
+│    │  │  words  │  │ min read│  │ visuals │                                     │    │
+│    │  └─────────┘  └─────────┘  └─────────┘                                     │    │
+│    │                                                                             │    │
+│    │  [Download]  [Copy to Clipboard]                                            │    │
+│    │                                                                             │    │
+│    │  ▼ View Full Article                                                        │    │
+│    │  ▼ Infographics                                                             │    │
+│    │  ▼ Visual Plan                                                              │    │
+│    │                                                                             │    │
+│    └─────────────────────────────────────────────────────────────────────────────┘    │
+│                                                                                         │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Agent Summary Table
+
+| Agent | Role | Model | Phase |
+|-------|------|-------|-------|
+| TopicResearchAgent | Finds trending topics | llama-3.3-70b | 1 |
+| CommitAnalysisAgent | Analyzes GitHub commits | llama-3.3-70b | 1 |
+| EditorAgent | Creates outlines, reviews | llama-3.3-70b | 2,3,6 |
+| CriticAgent | Critiques for quality | llama-3.3-70b | 3 |
+| WriterAgent | Drafts content | llama-3.1-8b | 4,6 |
+| SpecialistAgent (Hook) | Optimizes title/hook | gemini-2.0 | 5 |
+| SpecialistAgent (Story) | Adds narrative | gemini-2.0 | 5 |
+| SpecialistAgent (Voice) | Refines tone | gemini-2.0 | 5 |
+| SpecialistAgent (Value) | Ensures takeaways | gemini-2.0 | 5 |
+| VisualsAgent | Generates infographics | gemini-2.0 | 8 |
+| **AdversarialPanelAgent** | **Quality gate review** | **gemini-2.0** | **7 (NEW)** |
+
+---
+
+## File Locations
+
+```
+n:/RedditNews/
+├── app.py                          # Streamlit UI entry point
+├── execution/
+│   ├── agents/
+│   │   ├── adversarial_panel.py    # 🆕 Multi-expert panel
+│   │   ├── writer.py               # Updated with kill phrases
+│   │   ├── editor.py               # Updated with quality gates
+│   │   ├── critic.py               # Updated with multi-lens critique
+│   │   └── ...
+│   ├── quality_gate.py             # 🆕 REVIEW <-> FIX loop
+│   ├── generate_drafts.py          # Legacy (template-based)
+│   ├── generate_drafts_v2.py       # 🆕 Agent-based with quality gate
+│   └── ...
+├── directives/
+│   ├── adversarial_review.md       # 🆕 Review pipeline SOP
+│   └── ...
+└── drafts/
+    ├── medium_full_*.md            # Generated articles
+    └── images/                     # Generated visuals
+```
+
+---
+
+## Quick Commands
+
+```bash
+# Original UI flow (Phase 7 NOT included)
+streamlit run app.py
+
+# Generate with adversarial quality gate
+python execution/generate_drafts_v2.py --platform medium --limit 3
+
+# Run any draft through quality gate
+python execution/quality_gate.py --input drafts/draft.md --platform medium
+```

@@ -42,7 +42,30 @@ class WriterAgent(BaseAgent):
         "The fix that worked for us: [specific action]. What's yours?",
     ]
 
-    def __init__(self):
+    def __init__(self, tone_profile=None):
+        """
+        Initialize the writer agent.
+
+        Args:
+            tone_profile: Optional ToneProfile instance. When provided, its
+                          instructions are prepended to prompts, and its
+                          forbidden_phrases, war_story_keywords, hook_style,
+                          and cta_style are merged with defaults.
+        """
+        self.tone_profile = tone_profile
+
+        # Merge tone profile forbidden phrases into instance-level copy
+        if tone_profile is not None:
+            merged = list(self.__class__.FORBIDDEN_PHRASES)
+            for phrase in tone_profile.forbidden_phrases:
+                if phrase not in merged:
+                    merged.append(phrase)
+            self.forbidden_phrases = merged
+            self._war_story_keywords = list(tone_profile.war_story_keywords)
+        else:
+            self.forbidden_phrases = list(self.__class__.FORBIDDEN_PHRASES)
+            self._war_story_keywords = []
+
         super().__init__(
             role="Senior Technical Ghostwriter",
             persona="""You are an elite technical ghostwriter who has studied the best content from:
@@ -56,6 +79,22 @@ Your writing MUST:
 3. **One memorable moment per piece**: Something quotable, screenshot-worthy.
 4. **REAL data only**: If you cite a number, it must come from the source material. NO FABRICATED STATS.
 5. **CTAs that convert**: Specific, urgent, value-offering. Never "What do you think?"
+6. **MARKDOWN FORMATTING**: Your output MUST use proper markdown:
+   - H2 (##) for major sections (minimum 3 per article)
+   - H3 (###) for subsections where appropriate
+   - **Bold** for key terms and emphasis
+   - Bullet lists for sequences of 3+ related items
+   - > Blockquotes for notable quotes or key insights
+   - `inline code` and code blocks for technical terms/examples
+   - NEVER output a wall of plain paragraphs. Every article needs visual hierarchy.
+   - NEVER repeat the heading text as the first line of the section body.
+     BAD:  ## Advanced Indexing\\n\\nAdvanced Indexing\\n\\nContent...
+     GOOD: ## Advanced Indexing\\n\\nContent starts here...
+7. **CODE EXAMPLES** for technical articles:
+   - Include at least 1-2 real code snippets (SQL, config, CLI commands, etc.)
+   - Use fenced code blocks with language tags: ```sql, ```yaml, ```bash
+   - Code must be syntactically correct, realistic, and directly relevant
+   - Show before/after comparisons where appropriate
 
 CRITICAL - TECHNICAL HONESTY:
 - NEVER invent statistics ("40% improvement", "3x faster") unless from source material
@@ -74,7 +113,7 @@ FORBIDDEN:
 - "Studies show" without specific source
 
 You write for cynical senior engineers who can smell AI-generated content from a mile away.""",
-            model=config.models.DEFAULT_FAST_MODEL
+            model=config.models.DEFAULT_WRITER_MODEL
         )
 
     def write_section(self, section_plan, critique=None, source_type: str = "external"):
@@ -107,7 +146,12 @@ You write for cynical senior engineers who can smell AI-generated content from a
    - Allowed: 1 moment of dry wit (earned, not forced)
 """
 
-        prompt = f"""
+        # Prepend tone profile instructions if available
+        tone_block = ""
+        if self.tone_profile is not None:
+            tone_block = self.tone_profile.to_writer_instructions() + "\n\n---\n\n"
+
+        prompt = f"""{tone_block}
 Draft the following section based on the plan:
 {section_plan}
 
@@ -182,7 +226,11 @@ VOICE: Practitioner Owner (this is your experience)
 - Share personal wins and failures
 """
 
-        prompt = f"""Write a LinkedIn post about this signal.
+        tone_block = ""
+        if self.tone_profile is not None:
+            tone_block = self.tone_profile.to_writer_instructions() + "\n\n---\n\n"
+
+        prompt = f"""{tone_block}Write a LinkedIn post about this signal.
 
 SIGNAL:
 Title: {title}
@@ -216,7 +264,7 @@ Source: {url}
    - Mix broad (#AI) with specific (#RAGPipelines)
 
 **FORBIDDEN**:
-- "🚀 Interesting insight from r/..."
+- "Interesting insight from r/..."
 - "This aligns with what I'm seeing..."
 - "What's been your experience?"
 - Same hashtags as every other post
@@ -255,7 +303,11 @@ VOICE: Practitioner sharing firsthand experience
 - This is YOUR story
 """
 
-        prompt = f"""Write a Medium article about this signal.
+        tone_block = ""
+        if self.tone_profile is not None:
+            tone_block = self.tone_profile.to_writer_instructions() + "\n\n---\n\n"
+
+        prompt = f"""{tone_block}Write a Medium article about this signal.
 
 SIGNAL:
 Title: {title}

@@ -179,25 +179,54 @@ class BaseAgent:
         return os.getenv(env_var) if env_var else None
 
     def _get_api_key(self):
-        # Priority: Groq -> Vertex (Project) -> Gemini (Key) -> OpenAI
-        if os.getenv("GROQ_API_KEY"):
-            self.provider = "groq"
-            self.api_key = os.getenv("GROQ_API_KEY")
-        elif os.getenv("GOOGLE_CLOUD_PROJECT"):
-            self.provider = "gemini"
-            self.api_key = os.getenv("GOOGLE_CLOUD_API_KEY") or os.getenv("GOOGLE_API_KEY")
-            self.project = os.getenv("GOOGLE_CLOUD_PROJECT")
-            self.location = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
-            self.vertexai = True
-        elif os.getenv("GOOGLE_API_KEY"):
-            self.provider = "gemini"
-            self.api_key = os.getenv("GOOGLE_API_KEY")
-            self.vertexai = False
-        elif os.getenv("OPENAI_API_KEY"):
+        # Infer provider from model name when possible, then fall back to
+        # priority order for ambiguous model names (e.g. llama, sonar).
+        model = (self.model_name or "").lower()
+
+        if model.startswith("gemini") and os.getenv("GOOGLE_API_KEY"):
+            # Gemini models must use Google API
+            if os.getenv("GOOGLE_CLOUD_PROJECT"):
+                self.provider = "gemini"
+                self.api_key = os.getenv("GOOGLE_CLOUD_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                self.project = os.getenv("GOOGLE_CLOUD_PROJECT")
+                self.location = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
+                self.vertexai = True
+            else:
+                self.provider = "gemini"
+                self.api_key = os.getenv("GOOGLE_API_KEY")
+                self.vertexai = False
+        elif model.startswith(("gpt-", "o1", "o3")) and os.getenv("OPENAI_API_KEY"):
+            # OpenAI models must use OpenAI API
             self.provider = "openai"
             self.api_key = os.getenv("OPENAI_API_KEY")
+        elif model.startswith("claude") and os.getenv("ANTHROPIC_API_KEY"):
+            # Claude models must use Anthropic (routed via OpenAI-compatible)
+            self.provider = "openai"
+            self.api_key = os.getenv("ANTHROPIC_API_KEY")
+        elif model.startswith(("llama", "mixtral", "deepseek")) and os.getenv("GROQ_API_KEY"):
+            # Groq-hosted open models
+            self.provider = "groq"
+            self.api_key = os.getenv("GROQ_API_KEY")
         else:
-            self.api_key = None
+            # Fallback: priority order Groq -> Vertex -> Gemini -> OpenAI
+            if os.getenv("GROQ_API_KEY"):
+                self.provider = "groq"
+                self.api_key = os.getenv("GROQ_API_KEY")
+            elif os.getenv("GOOGLE_CLOUD_PROJECT"):
+                self.provider = "gemini"
+                self.api_key = os.getenv("GOOGLE_CLOUD_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                self.project = os.getenv("GOOGLE_CLOUD_PROJECT")
+                self.location = os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
+                self.vertexai = True
+            elif os.getenv("GOOGLE_API_KEY"):
+                self.provider = "gemini"
+                self.api_key = os.getenv("GOOGLE_API_KEY")
+                self.vertexai = False
+            elif os.getenv("OPENAI_API_KEY"):
+                self.provider = "openai"
+                self.api_key = os.getenv("OPENAI_API_KEY")
+            else:
+                self.api_key = None
 
     def _setup_client(self):
         if self.provider == "groq" and OpenAI:

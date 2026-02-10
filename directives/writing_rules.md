@@ -283,7 +283,25 @@ If the sentence could appear in any generic article about the topic, cut it. If 
 
 ---
 
-## 10. Self-Annealing Principle
+## 10. Tone Customization
+
+The rules above define the **default** voice (Expert Pragmatist). The tone system (`directives/tone_system.md`) allows switching to alternative voices while preserving core quality standards.
+
+### How Tone Presets Interact with Writing Rules
+
+- **Tone presets override voice-specific rules** -- Each preset carries its own forbidden phrases, war story keywords, vocabulary preferences, formality level, hook style, and CTA style. When a preset is active, its rules replace the corresponding defaults from this document.
+- **Quality invariants are preserved** -- Regardless of tone, all content must maintain: emotional hooks, specific metrics, actionable takeaways, technical accuracy, and engaging tone (Section 2: Quality Invariants).
+- **Source-aware voice still applies** -- The external/internal voice distinction (Section 2) operates independently of tone presets. A "Conversational Engineer" tone still uses observer voice for external-sourced content.
+- **Zero fluff policy is universal** -- No preset relaxes the zero fluff policy (Section 5). Every sentence must add value regardless of tone.
+- **Structure rules flex by preset** -- Paragraph length, sentence length targets, and burstiness targets come from the active ToneProfile's `sentence_style` settings rather than the fixed rules in Section 6.
+
+### Available Presets
+
+Six built-in presets: Expert Pragmatist (default), Thought Leader, Technical Deep Dive, Conversational Engineer, News Reporter, Contrarian Challenger. Custom profiles can be inferred from writing samples. See `directives/tone_system.md` for full details.
+
+---
+
+## 11. Self-Annealing Principle
 
 The writing rules must be updated immediately whenever a new constraint or pattern is identified during development.
 

@@ -447,7 +447,7 @@ If this exact quote cannot be found published ANYWHERE online, it is almost cert
                 class GroqWrapper:
                     def __init__(self, client):
                         self.client = client
-                        self.model = config.models.DEFAULT_WRITER_MODEL if config else "llama-3.3-70b-versatile"
+                        self.model = config.models.DEFAULT_FAST_MODEL if config else "llama-3.3-70b-versatile"
                 self.providers.append(("groq", GroqWrapper(groq_client)))
                 print("Groq provider initialized (fallback for claim extraction)")
         except Exception as e:
@@ -1245,30 +1245,30 @@ Please verify this specific claim using web search. Return JSON with status, sou
         total = verified + partial + unverified + false_claims
 
         if passes:
-            emoji = "✅"
+            tag = "[PASS]"
             status = "PASSED"
         else:
-            emoji = "❌"
+            tag = "[FAIL]"
             status = "FAILED"
 
         lines = [
-            f"{emoji} FACT VERIFICATION {status}",
+            f"{tag} FACT VERIFICATION {status}",
             "",
             f"Total claims analyzed: {total}",
-            f"  ✅ Verified: {verified}",
-            f"  🔶 Partially verified: {partial}",
-            f"  ⚠️  Unverified: {unverified}",
-            f"  ❌ False/Fabricated: {false_claims}",
+            f"  [OK] Verified: {verified}",
+            f"  [PARTIAL] Partially verified: {partial}",
+            f"  [WARNING] Unverified: {unverified}",
+            f"  [X] False/Fabricated: {false_claims}",
             "",
         ]
 
         if not passes:
             if false_claims > 0:
-                lines.append(f"⚠️  BLOCKING: {false_claims} false/fabricated claim(s) found")
+                lines.append(f"[WARNING] BLOCKING: {false_claims} false/fabricated claim(s) found")
             if unverified > self.max_unverified:
-                lines.append(f"⚠️  BLOCKING: {unverified} unverified claims (max: {self.max_unverified})")
+                lines.append(f"[WARNING] BLOCKING: {unverified} unverified claims (max: {self.max_unverified})")
             if (verified + partial) < self.min_verified:
-                lines.append(f"⚠️  BLOCKING: Only {verified + partial} verified facts (min: {self.min_verified})")
+                lines.append(f"[WARNING] BLOCKING: Only {verified + partial} verified facts (min: {self.min_verified})")
 
         return "\n".join(lines)
 
@@ -1349,11 +1349,11 @@ if __name__ == "__main__":
 
         for result in report.results:
             status_emoji = {
-                VerificationStatus.VERIFIED: "✅",
-                VerificationStatus.PARTIALLY_VERIFIED: "🔶",
-                VerificationStatus.UNVERIFIED: "⚠️",
-                VerificationStatus.FALSE: "❌",
-                VerificationStatus.NOT_CHECKABLE: "➖"
+                VerificationStatus.VERIFIED: "[OK]",
+                VerificationStatus.PARTIALLY_VERIFIED: "[PARTIAL]",
+                VerificationStatus.UNVERIFIED: "[WARNING]",
+                VerificationStatus.FALSE: "[X]",
+                VerificationStatus.NOT_CHECKABLE: "[-]"
             }
             print(f"{status_emoji.get(result.status, '?')} {result.claim.text[:60]}...")
             print(f"   Status: {result.status.value}")

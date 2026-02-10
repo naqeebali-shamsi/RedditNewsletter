@@ -104,6 +104,40 @@ The voice profile starts with null baselines. To calibrate:
 3. **Adversarial panel** — Style score can inform panel review context
 4. **CI/pre-commit** — Can be added as a pre-publish check
 
+## ToneProfile Overrides
+
+When a `ToneProfile` is provided (from `execution/tone_profiles.py`), the style enforcer adjusts its scoring parameters via `profile.to_style_overrides()`. This allows different tones to be scored against appropriate baselines rather than a single fixed standard.
+
+### What Gets Overridden
+
+| Parameter | Default | Override Source |
+|-----------|---------|----------------|
+| Forbidden phrases | Global list | `profile.forbidden_phrases` (each preset has its own) |
+| War story keywords | Global list | `profile.war_story_keywords` (e.g. News Reporter has none) |
+| Burstiness thresholds | high variance targets | Based on `sentence_style.length_variance` (high/medium/low) |
+| Authenticity weight | 25% | Drops to 10% when profile has no war story keywords |
+| AI-tell weight | 25% | Increases to 30% for formal profiles (formality >= 0.8) |
+| Framework compliance weight | 15% | Absorbs remaining weight after authenticity/AI-tell redistribution |
+
+### Backward Compatibility
+
+No ToneProfile = original behavior. All overrides are additive -- the scoring logic checks for the presence of a ToneProfile and falls back to default thresholds when none is provided. Existing pipelines, CLI usage, and `voice_profile.json` calibration continue to work unchanged.
+
+### Example
+
+```python
+from execution.agents.style_enforcer import StyleEnforcerAgent
+from execution.tone_profiles import get_preset
+
+profile = get_preset("News Reporter")
+overrides = profile.to_style_overrides()
+
+enforcer = StyleEnforcerAgent(profile_path="execution/voice_profile.json")
+result = enforcer.score(article_text, content_type="article", tone_overrides=overrides)
+```
+
+For full tone system documentation, see `directives/tone_system.md`.
+
 ## Self-Annealing
 
 When the writing style intentionally evolves:

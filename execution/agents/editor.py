@@ -75,8 +75,18 @@ Follow the 'GhostWriter Style Guide':
 1. **Hook Options**: Generate 5 distinct hooks (Transformation, Tension, Mistake).
 2. **The Opening Scene**: Outline the personal struggle (Time, Place, Emotion).
 3. **The Pivot**: Connect story to reader pain ("You're not alone").
-4. **Body Structure**: 3-5 H2s, each with a 'Takeaway List' plan.
+4. **Body Structure**: 3-5 H2 sections. Each section MUST have an explicit ## header.
 5. **Visuals**: Where do the Infographics go?
+
+CRITICAL: The outline MUST specify H2 section headers that will appear in the final article.
+Format each body section as:
+
+## [Section Title]
+- Key point 1
+- Key point 2
+- Takeaway
+
+The final article MUST contain these ## headers verbatim. Minimum 3 H2 sections required.
 
 Output a structured outline.
 """

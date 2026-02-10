@@ -121,10 +121,10 @@ IMPORTANT: The "prompt" field must contain a detailed image generation prompt, n
                     print(f"Failed: {r.concept_name} - {r.error_type}: {r.error}")
         """
         if not visual_plan:
-            print("  ⚠️ No visual plan provided")
+            print("  [WARNING] No visual plan provided")
             return ([], []) if return_details else []
 
-        print(f"\n🍌 [Nano Banana Pro] Generating {len(visual_plan)} images...")
+        print(f"\n[Nano Banana Pro] Generating {len(visual_plan)} images...")
 
         # Use the nano_banana_client module
         client = NanoBananaClient(
@@ -135,13 +135,13 @@ IMPORTANT: The "prompt" field must contain a detailed image generation prompt, n
         paths, results = client.generate_from_visual_plan(visual_plan)
 
         if client.is_simulation_mode:
-            print("  ⚠️ Running in simulation mode (no API key)")
+            print("  [WARNING] Running in simulation mode (no API key)")
             print("     Set GOOGLE_API_KEY in .env for real generation")
 
         # Log any failures with detailed error info
         failures = [r for r in results if not r.success]
         if failures:
-            print(f"\n  ⚠️ {len(failures)} image(s) failed to generate:")
+            print(f"\n  [WARNING] {len(failures)} image(s) failed to generate:")
             for r in failures:
                 print(f"     - {r.concept_name}: [{r.error_type}] {r.error}")
                 if r.error_code:

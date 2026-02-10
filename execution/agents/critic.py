@@ -24,7 +24,7 @@ class CriticAgent(BaseAgent):
         ("<div class=", "HTML_ARTIFACT", "Raw HTML leaked into content"),
         ("Contains some technical content", "METADATA_LEAK", "Internal metadata exposed"),
         ("contains 2 technical keywords", "METADATA_LEAK", "Internal scoring exposed"),
-        ("🚀 Interesting insight from r/", "TEMPLATE_OPENER", "Same opener every post"),
+        ("Interesting insight from r/", "TEMPLATE_OPENER", "Same opener every post"),
         ("#AIEngineering #MachineLearning #LLMOps #ProductionAI", "HASHTAG_SPAM", "Same hashtags every post"),
     ]
 
@@ -165,7 +165,7 @@ RECOMMENDATIONS:
         violation_warning = ""
         if violations:
             violation_warning = f"""
-⚠️ KILL-PHRASE VIOLATIONS DETECTED (Auto-cap score at 4):
+[WARNING] KILL-PHRASE VIOLATIONS DETECTED (Auto-cap score at 4):
 {chr(10).join(f"- [{v['code']}] Found: '{v['phrase']}' - {v['description']}" for v in violations)}
 
 """
@@ -236,7 +236,7 @@ FIX INSTRUCTIONS:
         violation_section = ""
         if violations:
             violation_section = f"""
-⚠️ AUTOMATIC FAILURES (Kill-phrase violations):
+[WARNING] AUTOMATIC FAILURES (Kill-phrase violations):
 {chr(10).join(f"- [{v['code']}] '{v['phrase']}' - {v['description']}" for v in violations)}
 
 These MUST be fixed. Score capped at 4 until resolved.

@@ -81,6 +81,9 @@ class ArticleState(BaseModel):
     voice_violations: List[Dict] = Field(default_factory=list)
     voice_validated: bool = False
 
+    # Tone Profile
+    tone_profile_name: str = "Expert Pragmatist"
+
     # Provenance (C2PA)
     c2pa_manifest: Dict[str, Any] = Field(default_factory=dict)
     ai_disclosure: str = ""

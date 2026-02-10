@@ -63,6 +63,8 @@ Content generation follows the **Architected Writing Framework** — a 5-Pillar 
 
 **Style baseline:** `execution/voice_profile.json` contains the voice fingerprint metrics. Recalibrate when writing style intentionally evolves.
 
+**Tone presets:** The tone system (`directives/tone_system.md`) provides 6 built-in voice presets (Expert Pragmatist, Thought Leader, Technical Deep Dive, Conversational Engineer, News Reporter, Contrarian Challenger). Users can also infer custom profiles from writing samples. Tone profiles flow through WriterAgent, StyleEnforcerAgent, and QualityGate, adjusting prompts and scoring baselines per-voice. Adaptive learning refines profiles based on user edit feedback over time.
+
 ## Internet Pulse Monitoring
 
 GhostWriter monitors multiple sources for trending topics and content signals:
@@ -84,6 +86,10 @@ GhostWriter monitors multiple sources for trending topics and content signals:
 - `.tmp/` - All intermediate files (dossiers, scraped data, temp exports). Never commit, always regenerated.
 - `execution/` - Python scripts (the deterministic tools)
 - `execution/agents/` - AI agents (style enforcer, base agent, multi-model reviewers)
+- `execution/tone_profiles.py` - ToneProfile data model and preset manager
+- `execution/tone_presets.json` - Built-in tone preset data (6 presets)
+- `execution/tone_inference.py` - LLM-powered tone inference from writing samples
+- `execution/user_preferences.py` - User tone preferences with adaptive learning
 - `execution/sources/` - Content source implementations (Reddit, GitHub, HackerNews, RSS)
 - `directives/` - SOPs in Markdown (the instruction set)
 - `content_archive/` - Historical content (articles, series) for voice calibration

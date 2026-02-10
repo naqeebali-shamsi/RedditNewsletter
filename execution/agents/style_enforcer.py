@@ -118,22 +118,44 @@ class StyleEnforcerAgent:
     # Tradeoff indicators (full text)
     TRADEOFF_INDICATORS = ['tradeoff', 'trade-off', 'cost:', 'downside', 'vs.', 'versus', 'at the expense']
 
-    def __init__(self, profile_path: Optional[str] = None):
+    def __init__(self, profile_path: Optional[str] = None, tone_profile=None):
         """
-        Initialize with optional voice profile.
+        Initialize with optional voice profile and/or tone profile.
 
         Args:
             profile_path: Path to voice_profile.json for baseline comparison
+            tone_profile: Optional ToneProfile instance for tone-aware scoring.
+                          When provided, overrides forbidden phrases, war story
+                          keywords, burstiness thresholds, and dimension weights.
         """
         self.profile = None
+        self.tone_profile = tone_profile
+        self._tone_overrides = None
+
         if profile_path:
             path = Path(profile_path)
             if path.exists():
                 with open(path, 'r', encoding='utf-8') as f:
                     self.profile = json.load(f)
 
-        # Load profile defaults
-        if self.profile:
+        # Load defaults then apply tone profile overrides
+        if self.tone_profile is not None:
+            self._tone_overrides = self.tone_profile.to_style_overrides()
+            # Merge tone profile forbidden phrases with defaults
+            tone_forbidden = self._tone_overrides.get("forbidden_phrases", [])
+            merged_forbidden = list(self.DEFAULT_FORBIDDEN)
+            for phrase in tone_forbidden:
+                if phrase.lower() not in [p.lower() for p in merged_forbidden]:
+                    merged_forbidden.append(phrase)
+            self.forbidden_phrases = merged_forbidden
+            # Merge war story keywords
+            tone_war_stories = self._tone_overrides.get("war_story_keywords", [])
+            merged_war_stories = list(self.DEFAULT_WAR_STORY_KEYWORDS)
+            for kw in tone_war_stories:
+                if kw.lower() not in [k.lower() for k in merged_war_stories]:
+                    merged_war_stories.append(kw)
+            self.war_story_keywords = merged_war_stories
+        elif self.profile:
             self.forbidden_phrases = self.profile.get("forbidden_phrases", self.DEFAULT_FORBIDDEN)
             markers = self.profile.get("required_markers", {})
             self.war_story_keywords = markers.get("war_story_keywords", self.DEFAULT_WAR_STORY_KEYWORDS)
@@ -320,14 +342,24 @@ class StyleEnforcerAgent:
         """
         # 1. Burstiness (20% weight)
         burstiness, avg_len, std_dev, _ = self._calculate_burstiness(text)
-        if burstiness >= 0.4:
+
+        # Use tone profile thresholds if available, else defaults
+        if self._tone_overrides and "burstiness_thresholds" in self._tone_overrides:
+            bt = self._tone_overrides["burstiness_thresholds"]
+            excellent_t = bt.get("excellent", 0.4)
+            good_t = bt.get("good", 0.3)
+            acceptable_t = bt.get("acceptable", 0.2)
+        else:
+            excellent_t, good_t, acceptable_t = 0.4, 0.3, 0.2
+
+        if burstiness >= excellent_t:
             burstiness_score = 100
-        elif burstiness >= 0.3:
+        elif burstiness >= good_t:
             burstiness_score = 80
-        elif burstiness >= 0.2:
+        elif burstiness >= acceptable_t:
             burstiness_score = 60
         else:
-            burstiness_score = max(20, burstiness * 250)  # Linear scale below 0.2
+            burstiness_score = max(20, burstiness * 250)  # Linear scale below threshold
 
         # 2. Lexical Diversity (15% weight)
         vocd, ttr = self._calculate_lexical_diversity(text)
@@ -400,13 +432,23 @@ class StyleEnforcerAgent:
         fw_score += max(0, 30 - para_penalty)
         fw_score = min(100, fw_score)
 
-        # Composite score (weighted)
+        # Composite score (weighted) - use tone profile weights if available
+        if self._tone_overrides and "dimension_weights" in self._tone_overrides:
+            dw = self._tone_overrides["dimension_weights"]
+            w_burst = dw.get("burstiness", 0.20)
+            w_lex = dw.get("lexical_diversity", 0.15)
+            w_ai = dw.get("ai_tell", 0.25)
+            w_auth = dw.get("authenticity", 0.25)
+            w_fw = dw.get("framework_compliance", 0.15)
+        else:
+            w_burst, w_lex, w_ai, w_auth, w_fw = 0.20, 0.15, 0.25, 0.25, 0.15
+
         total = (
-            burstiness_score * 0.20 +
-            lex_score * 0.15 +
-            ai_tell_score * 0.25 +
-            auth_score * 0.25 +
-            fw_score * 0.15
+            burstiness_score * w_burst +
+            lex_score * w_lex +
+            ai_tell_score * w_ai +
+            auth_score * w_auth +
+            fw_score * w_fw
         )
 
         return StyleScore(
@@ -495,6 +537,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Style Enforcement Scoring")
     parser.add_argument("file", help="Path to article/content file")
     parser.add_argument("--profile", help="Path to voice_profile.json")
+    parser.add_argument("--tone-profile", help="Name of a tone preset (e.g. 'Expert Pragmatist')")
     parser.add_argument("--type", choices=["linkedin", "article", "longform"],
                        default="article", help="Content type")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -502,7 +545,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     content = Path(args.file).read_text(encoding='utf-8')
-    enforcer = StyleEnforcerAgent(profile_path=args.profile)
+
+    tone_profile = None
+    if args.tone_profile:
+        from execution.tone_profiles import get_preset
+        tone_profile = get_preset(args.tone_profile)
+
+    enforcer = StyleEnforcerAgent(profile_path=args.profile, tone_profile=tone_profile)
     result = enforcer.score(content, content_type=args.type)
 
     if args.json:

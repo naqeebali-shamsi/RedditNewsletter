@@ -251,20 +251,20 @@ RULES:
         # Verified facts
         verified = fact_sheet.get("verified_facts", [])
         if verified:
-            lines.append("✅ VERIFIED FACTS - You MAY use these with confidence:")
+            lines.append("[OK] VERIFIED FACTS - You MAY use these with confidence:")
             for f in verified:
                 lines.append(f"   • {f['fact']}")
                 lines.append(f"     Source: {f.get('source', 'N/A')} | Confidence: {f.get('confidence', 'N/A')}")
             lines.append("")
         else:
-            lines.append("⚠️  NO VERIFIED FACTS AVAILABLE")
+            lines.append("[WARNING] NO VERIFIED FACTS AVAILABLE")
             lines.append("   Write with conviction but WITHOUT specific numbers or claims.")
             lines.append("")
 
         # Unverified claims - DO NOT USE
         unverified = fact_sheet.get("unverified_claims", [])
         if unverified:
-            lines.append("❌ UNVERIFIED CLAIMS - DO NOT USE THESE:")
+            lines.append("[X] UNVERIFIED CLAIMS - DO NOT USE THESE:")
             for u in unverified:
                 lines.append(f"   • {u['claim']}")
                 lines.append(f"     Why: {u.get('reason', 'Could not verify')}")
@@ -313,25 +313,25 @@ RULES:
             vtype = v.get("type", "UNKNOWN")
 
             if vtype == "FAKE_METRIC":
-                lines.append(f"❌ FAKE METRIC DETECTED: '{v.get('match', '')}'")
+                lines.append(f"[X] FAKE METRIC DETECTED: '{v.get('match', '')}'")
                 lines.append(f"   This metric doesn't exist. {v.get('reason', '')}")
                 lines.append(f"   FIX: Remove entirely OR replace with real metric from fact sheet")
                 lines.append("")
 
             elif vtype == "SUSPICIOUS_SPEC":
-                lines.append(f"❌ SUSPICIOUS SPECIFICATION: '{v.get('match', '')}'")
+                lines.append(f"[X] SUSPICIOUS SPECIFICATION: '{v.get('match', '')}'")
                 lines.append(f"   {v.get('reason', 'Could not verify this claim')}")
                 lines.append(f"   FIX: Check fact sheet for verified specs. If not there, remove.")
                 lines.append("")
 
             elif vtype == "FABRICATED_STATS":
-                lines.append(f"❌ FABRICATED STATISTIC: '{v.get('match', '')}'")
+                lines.append(f"[X] FABRICATED STATISTIC: '{v.get('match', '')}'")
                 lines.append(f"   No source for this number.")
                 lines.append(f"   FIX: Remove the number. Write with conviction without stats.")
                 lines.append("")
 
             elif vtype == "PHANTOM_EVIDENCE":
-                lines.append(f"❌ PHANTOM EVIDENCE: '{v.get('phrase', '')}'")
+                lines.append(f"[X] PHANTOM EVIDENCE: '{v.get('phrase', '')}'")
                 lines.append(f"   Vague appeal to authority without source.")
                 lines.append(f"   FIX: Either cite specific source OR rephrase as opinion/observation")
                 lines.append("")

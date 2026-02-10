@@ -236,6 +236,43 @@ class VectorDBConfig(BaseSettings):
     )
 
 
+class RetrievalConfig(BaseSettings):
+    """Hybrid retrieval configuration."""
+
+    # BM25 settings
+    BM25_TOP_K: int = 50
+    BM25_WEIGHT: float = 1.0
+
+    # Vector search settings
+    VECTOR_TOP_K: int = 50
+    VECTOR_WEIGHT: float = 1.0
+
+    # RRF fusion
+    RRF_K: int = 60
+    FUSION_TOP_K: int = 50
+
+    # Reranking
+    RERANK_ENABLED: bool = True
+    RERANK_MODEL_PROFILE: str = "balanced"  # fast, balanced, accurate
+    RERANK_TOP_K: int = 10
+    RERANK_TIMEOUT_MS: int = 5000
+
+    # Recency scoring
+    RECENCY_HALF_LIFE_DAYS: int = 14
+    RECENCY_SEMANTIC_WEIGHT: float = 0.7
+    RECENCY_WEIGHT: float = 0.3
+
+    # Final output
+    DEFAULT_TOP_K: int = 10
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_prefix="RETRIEVAL_",
+    )
+
+
 class GhostWriterConfig(BaseSettings):
     """Main configuration class combining all config sections."""
 
@@ -245,6 +282,7 @@ class GhostWriterConfig(BaseSettings):
     models: ModelConfig = Field(default_factory=ModelConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     vector_db: VectorDBConfig = Field(default_factory=VectorDBConfig)
+    retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
 
     # Application metadata
     APP_NAME: str = "GhostWriter"

@@ -141,39 +141,49 @@ class ModelConfig(BaseSettings):
     """Model selection configuration."""
 
     # Default models by task
+    # MULTI-PROVIDER STRATEGY:
+    #   gemini-2.5-pro: writer + research (quality-critical, ~4-5 calls/run)
+    #   llama-3.3-70b-versatile via Groq: all supporting agents (generous free tier)
+    #   sonar-pro via Perplexity: research fallback
+    # NOTE: Gemini free tier limits are per-project-per-model-per-day.
+    #   gemini-2.5-pro has 100 RPD, flash/flash-lite have ~20 RPD (too low).
+    #   When on a paid Gemini plan, switch supporting agents back to gemini-2.5-flash.
+    # TODO: Switch back to "gemini-2.5-pro" when Gemini quota resets
     DEFAULT_WRITER_MODEL: str = "llama-3.3-70b-versatile"
     DEFAULT_CRITIC_MODEL: str = "llama-3.3-70b-versatile"
     DEFAULT_EDITOR_MODEL: str = "llama-3.3-70b-versatile"
 
     # Fast/lightweight model for specialists and simple tasks
-    DEFAULT_FAST_MODEL: str = "llama-3.1-8b-instant"
+    DEFAULT_FAST_MODEL: str = "llama-3.3-70b-versatile"
 
     # Base model used as fallback across agents
-    DEFAULT_BASE_MODEL: str = "gemini-2.0-flash-exp"
+    DEFAULT_BASE_MODEL: str = "llama-3.3-70b-versatile"
 
     # Research models (with web search capability)
-    RESEARCH_MODEL_PRIMARY: str = "gemini-2.0-flash"
+    # TODO: Switch back to "gemini-2.5-pro" when Gemini quota resets
+    RESEARCH_MODEL_PRIMARY: str = "gemini-2.5-flash-lite"
     RESEARCH_MODEL_FALLBACK: str = "sonar-pro"
-    GEMINI_RESEARCH_MODEL: str = "gemini-3-flash-preview"
+    GEMINI_RESEARCH_MODEL: str = "gemini-2.5-flash-lite"
 
-    # Content evaluation model
-    CONTENT_EVAL_MODEL: str = "gemini-1.5-flash"
+    # Content evaluation model (standalone, not in pipeline)
+    CONTENT_EVAL_MODEL: str = "gemini-2.5-flash-lite"
 
     # Multi-model panel configuration
     ETHICS_REVIEWER_MODEL: str = "claude-sonnet-4-20250514"
     STRUCTURE_REVIEWER_MODEL: str = "gpt-4o"
-    FACT_REVIEWER_MODEL: str = "gemini-2.0-flash"
+    FACT_REVIEWER_MODEL: str = "llama-3.3-70b-versatile"
 
     # Cost tiers
     TIER_SIMPLE: Dict[str, str] = Field(default={
         "anthropic": "claude-3-haiku-20240307",
         "openai": "gpt-4o-mini",
-        "google": "gemini-2.0-flash",
+        "google": "gemini-2.5-flash-lite",
+        "groq": "llama-3.3-70b-versatile",
     })
     TIER_MEDIUM: Dict[str, str] = Field(default={
         "anthropic": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
-        "google": "gemini-2.0-pro",
+        "google": "gemini-2.5-pro",
     })
     TIER_COMPLEX: Dict[str, str] = Field(default={
         "anthropic": "claude-opus-4-20250514",
@@ -203,6 +213,29 @@ class VoiceConfig(BaseModel):
     STYLE_MEDIUM: str = "medium"
 
 
+class VectorDBConfig(BaseSettings):
+    """Vector database configuration."""
+
+    DATABASE_URL: str = "postgresql+psycopg://ghostwriter:dev_password@localhost:5432/knowledge_base"
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIMENSIONS: int = 1536
+    DAILY_TOKEN_LIMIT: int = 500_000
+    DEFAULT_TENANT: str = "default"
+    CHUNK_OVERLAP_PERCENT: float = 0.15
+    # Chunk sizes per content type (tokens)
+    CHUNK_SIZE_EMAIL: int = 400
+    CHUNK_SIZE_PAPER: int = 512
+    CHUNK_SIZE_RSS: int = 256
+    CHUNK_SIZE_DEFAULT: int = 400
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_prefix="VECTORDB_",
+    )
+
+
 class GhostWriterConfig(BaseSettings):
     """Main configuration class combining all config sections."""
 
@@ -211,6 +244,7 @@ class GhostWriterConfig(BaseSettings):
     quality: QualityConfig = Field(default_factory=QualityConfig)
     models: ModelConfig = Field(default_factory=ModelConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    vector_db: VectorDBConfig = Field(default_factory=VectorDBConfig)
 
     # Application metadata
     APP_NAME: str = "GhostWriter"

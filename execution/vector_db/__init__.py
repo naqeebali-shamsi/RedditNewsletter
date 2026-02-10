@@ -21,6 +21,8 @@ from execution.vector_db.models import Base, Document, KnowledgeChunk, Ingestion
 from execution.vector_db.connection import get_engine, get_session, init_db
 from execution.vector_db.embeddings import (
     EmbeddingClient,
+    embed_texts,
+    batch_embed_texts,
     TokenBudgetExceeded,
     BatchEmbeddingFailed,
     EmbeddingError,
@@ -40,6 +42,8 @@ __all__ = [
     "get_session",
     "init_db",
     "EmbeddingClient",
+    "embed_texts",
+    "batch_embed_texts",
     "TokenBudgetExceeded",
     "BatchEmbeddingFailed",
     "EmbeddingError",

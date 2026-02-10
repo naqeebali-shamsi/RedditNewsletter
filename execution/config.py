@@ -216,7 +216,7 @@ class VoiceConfig(BaseModel):
 class VectorDBConfig(BaseSettings):
     """Vector database configuration."""
 
-    DATABASE_URL: str = "postgresql+psycopg://ghostwriter:dev_password@localhost:5432/knowledge_base"
+    DATABASE_URL: str = "postgresql+psycopg://ghostwriter:dev_password@localhost:5433/knowledge_base"
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS: int = 1536
     DAILY_TOKEN_LIMIT: int = 500_000

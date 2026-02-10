@@ -87,6 +87,9 @@ class IngestionPipeline:
             Exception: On unrecoverable database errors after rollback.
         """
         with get_session() as session:
+            # Keep attributes accessible after session close
+            session.expire_on_commit = False
+
             # 1. Check for existing document
             existing = session.query(Document).filter(
                 and_(
@@ -99,6 +102,8 @@ class IngestionPipeline:
             if existing:
                 if existing.processing_status == "embedded":
                     logger.info("Skipping already-embedded document: %s", title)
+                    # Eagerly load chunks before session closes
+                    _ = existing.chunks
                     return existing
                 # Reprocess: delete old chunks
                 logger.info(

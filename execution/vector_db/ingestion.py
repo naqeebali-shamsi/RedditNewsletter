@@ -202,6 +202,8 @@ class IngestionPipeline:
 
             # 8. Mark as embedded
             doc.processing_status = "embedded"
+            # Eagerly load chunks before session closes
+            _ = doc.chunks
             logger.info(
                 "Ingested '%s': %d chunks embedded",
                 title,

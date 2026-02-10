@@ -52,6 +52,11 @@ html2text>=2024.2.26
 # Token Counting
 tiktoken>=0.7.0
 
+# Hybrid Search (BM25 + Reranking)
+bm25s>=0.2.0
+sentence-transformers>=3.0.0
+PyStemmer>=2.2.0
+
 # Task Scheduling
 apscheduler>=3.10.0
 

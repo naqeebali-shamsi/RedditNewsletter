@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-02-09)
 ## Current Position
 
 Phase: 2 of 7 (Retrieval Tools)
-Plan: 1 of 3 in current phase
-Status: In progress — Plan 02-01 complete (retrieval utilities)
-Last activity: 2026-02-10 — Completed 02-01-PLAN.md (metadata filters, recency scoring, citations)
+Plan: 2 of 3 in current phase
+Status: In progress — Plan 02-02 complete (BM25 + CrossEncoder)
+Last activity: 2026-02-10 — Completed 02-02-PLAN.md (BM25 sparse retrieval + CrossEncoder reranking)
 
-Progress: [████████████░░] ~17% overall (5/estimated 30 plans)
+Progress: [████████████░░] ~20% overall (6/estimated 30 plans)
 
 ## Phase Delivery Summaries
 
@@ -44,16 +44,19 @@ Progress: [████████████░░] ~17% overall (5/estimated
 
 ### Phase 2: Retrieval Tools (IN PROGRESS)
 
-**1 plan executed (Wave 1):**
+**2 plans executed (Wave 1):**
 - Plan 02-01: Metadata filters + recency scoring + citation extraction
+- Plan 02-02: BM25 sparse retrieval + CrossEncoder reranking
 
-**3 commits total. Key artifacts:**
+**5 commits total. Key artifacts:**
 
 | Module | Purpose | Key Exports |
 |--------|---------|-------------|
 | `execution/vector_db/metadata_filters.py` | SQLAlchemy filter builders for scoped retrieval | MetadataFilter, build_filters |
 | `execution/vector_db/recency_scoring.py` | Time decay functions for trend-aware ranking | RecencyScorer |
 | `execution/vector_db/citations.py` | Sentence-level citation extraction | CitationExtractor, Citation |
+| `execution/vector_db/bm25_index.py` | Fast BM25 sparse retrieval using bm25s | BM25Index |
+| `execution/vector_db/reranking.py` | CrossEncoder precision reranking | CrossEncoderReranker |
 
 ## Performance Metrics
 
@@ -90,6 +93,10 @@ Recent decisions affecting current work:
 - 14-day half-life default for recency decay: Research-validated (ArXiv 2509.19376), configurable per source type (D-02-01-002)
 - Keyword heuristics for trend detection (not LLM): Fast, deterministic, extensible to LLM later (D-02-01-003)
 - Citation ID format {chunk_id}.{sentence_idx}: Compact, preserves context, easy to parse (D-02-01-004)
+- Use bm25s over rank-bm25: 500x faster (573 QPS vs 2 QPS), essential for real-time hybrid search (D-02-02-001)
+- Lazy loading for CrossEncoder models: sentence-transformers import is slow, defer until first rerank() (D-02-02-002)
+- Cap reranking at 100 candidates: CrossEncoder scores ~1800 docs/sec, 100 = 55ms latency (D-02-02-003)
+- Use numpy 1.26.4 for compatibility: Balances scipy>=1.26.4 requirement with bm25s/jax 1.x support (D-02-02-004)
 
 ### Pending Todos
 
@@ -116,7 +123,7 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-10T16:31:20Z
-Stopped at: Completed 02-01-PLAN.md (metadata filters, recency scoring, citations)
+Last session: 2026-02-10T16:36:14Z
+Stopped at: Completed 02-02-PLAN.md (BM25 sparse retrieval + CrossEncoder reranking)
 Resume file: None
-Next: Phase 02-02 (BM25 + RRF Hybrid Search) or 02-03 (Hybrid Retrieval Orchestrator)
+Next: Phase 02-03 (Hybrid Retrieval Orchestrator with RRF fusion)

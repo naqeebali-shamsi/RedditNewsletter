@@ -12,6 +12,8 @@ Usage:
         EmbeddingClient, TokenTracker,
         SemanticChunker, chunk_content, Chunk,
         AutoTagger, auto_tag, TagResult,
+        IngestionPipeline, ingest_document, ingest_batch,
+        create_hnsw_index, semantic_search, get_index_stats,
     )
 """
 
@@ -26,6 +28,8 @@ from execution.vector_db.embeddings import (
 from execution.vector_db.token_tracking import TokenTracker
 from execution.vector_db.chunking import SemanticChunker, chunk_content, Chunk
 from execution.vector_db.tagging import AutoTagger, auto_tag, TagResult
+from execution.vector_db.ingestion import IngestionPipeline, ingest_document, ingest_batch
+from execution.vector_db.indexing import create_hnsw_index, semantic_search, get_index_stats
 
 __all__ = [
     "Base",
@@ -46,4 +50,10 @@ __all__ = [
     "AutoTagger",
     "auto_tag",
     "TagResult",
+    "IngestionPipeline",
+    "ingest_document",
+    "ingest_batch",
+    "create_hnsw_index",
+    "semantic_search",
+    "get_index_stats",
 ]

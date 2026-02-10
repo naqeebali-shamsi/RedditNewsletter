@@ -223,7 +223,8 @@ def record_usage(tokens: int) -> None:
 def estimate_tokens(texts: list[str]) -> int:
     """Estimate token count for a list of texts.
 
-    Uses the standard approximation of 1 token per 4 characters.
+    Uses tiktoken (cl100k_base encoding) for accurate counts.
+    Falls back to 1 token per 4 characters if tiktoken is unavailable.
 
     Args:
         texts: List of text strings to estimate.
@@ -231,4 +232,10 @@ def estimate_tokens(texts: list[str]) -> int:
     Returns:
         Estimated total token count.
     """
-    return sum(len(t) // 4 for t in texts)
+    try:
+        import tiktoken
+        enc = tiktoken.encoding_for_model("text-embedding-3-small")
+        return sum(len(enc.encode(t)) for t in texts)
+    except (ImportError, Exception):
+        logger.debug("tiktoken unavailable, using 4-char approximation")
+        return sum(len(t) // 4 for t in texts)

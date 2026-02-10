@@ -112,46 +112,46 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | — | Pending |
-| INFRA-02 | — | Pending |
-| INFRA-03 | — | Pending |
-| INFRA-04 | — | Pending |
-| INFRA-05 | — | Pending |
-| INFRA-06 | — | Pending |
-| RETR-01 | — | Pending |
-| RETR-02 | — | Pending |
-| RETR-03 | — | Pending |
-| RETR-04 | — | Pending |
-| RETR-05 | — | Pending |
-| GMAIL-01 | — | Pending |
-| GMAIL-02 | — | Pending |
-| GMAIL-03 | — | Pending |
-| GMAIL-04 | — | Pending |
-| GMAIL-05 | — | Pending |
-| GMAIL-06 | — | Pending |
-| GMAIL-07 | — | Pending |
-| SCHOL-01 | — | Pending |
-| SCHOL-02 | — | Pending |
-| SCHOL-03 | — | Pending |
-| SCHOL-04 | — | Pending |
-| SCHOL-05 | — | Pending |
-| SCHOL-06 | — | Pending |
-| PIPE-01 | — | Pending |
-| PIPE-02 | — | Pending |
-| PIPE-03 | — | Pending |
-| PIPE-04 | — | Pending |
-| PIPE-05 | — | Pending |
-| PIPE-06 | — | Pending |
-| ADV-01 | — | Pending |
-| ADV-02 | — | Pending |
-| ADV-03 | — | Pending |
-| PROOF-01 | — | Pending |
+| INFRA-01 | Phase 1 | Pending |
+| INFRA-02 | Phase 1 | Pending |
+| INFRA-03 | Phase 1 | Pending |
+| INFRA-04 | Phase 1 | Pending |
+| INFRA-05 | Phase 1 | Pending |
+| INFRA-06 | Phase 1 | Pending |
+| RETR-01 | Phase 2 | Pending |
+| RETR-02 | Phase 2 | Pending |
+| RETR-03 | Phase 2 | Pending |
+| RETR-04 | Phase 2 | Pending |
+| RETR-05 | Phase 2 | Pending |
+| GMAIL-01 | Phase 3 | Pending |
+| GMAIL-02 | Phase 3 | Pending |
+| GMAIL-03 | Phase 3 | Pending |
+| GMAIL-04 | Phase 3 | Pending |
+| GMAIL-05 | Phase 3 | Pending |
+| GMAIL-06 | Phase 3 | Pending |
+| GMAIL-07 | Phase 3 | Pending |
+| SCHOL-01 | Phase 4 | Pending |
+| SCHOL-02 | Phase 4 | Pending |
+| SCHOL-03 | Phase 4 | Pending |
+| SCHOL-04 | Phase 4 | Pending |
+| SCHOL-05 | Phase 4 | Pending |
+| SCHOL-06 | Phase 4 | Pending |
+| PIPE-01 | Phase 5 | Pending |
+| PIPE-02 | Phase 5 | Pending |
+| PIPE-03 | Phase 5 | Pending |
+| PIPE-04 | Phase 5 | Pending |
+| PIPE-05 | Phase 5 | Pending |
+| PIPE-06 | Phase 5 | Pending |
+| ADV-01 | Phase 6 | Pending |
+| ADV-02 | Phase 6 | Pending |
+| ADV-03 | Phase 6 | Pending |
+| PROOF-01 | Phase 7 | Pending |
 
 **Coverage:**
 - v1 requirements: 34 total
-- Mapped to phases: 0
-- Unmapped: 34
+- Mapped to phases: 34
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-09*
-*Last updated: 2026-02-09 after initial definition*
+*Last updated: 2026-02-10 (traceability mapping)*

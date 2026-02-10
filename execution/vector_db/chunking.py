@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import html2text
 import pysbd
 
-from execution.config import config
+from execution.vector_db.token_tracking import estimate_tokens as _tiktoken_estimate
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class Chunk:
     Attributes:
         text: The chunk content.
         chunk_index: Order within the parent document.
-        token_count: Estimated token count (1 token per 4 chars).
+        token_count: Estimated token count (tiktoken cl100k_base).
         topic_hint: Optional topic label from boundary detection.
         metadata: Optional extra metadata.
     """
@@ -51,31 +51,33 @@ class SemanticChunker:
 
     Routes to content-type-specific strategies with appropriate
     chunk sizes, boundary detection, and overlap handling.
+
+    Args:
+        default_chunk_size: Override the default chunk size (tokens).
+        overlap_percent: Override the default overlap percentage.
     """
-
-    # Content-type to chunk size mapping (tokens)
-    _CHUNK_SIZES = {
-        "email": config.vector_db.CHUNK_SIZE_EMAIL,
-        "paper": config.vector_db.CHUNK_SIZE_PAPER,
-        "rss": config.vector_db.CHUNK_SIZE_RSS,
-        "default": config.vector_db.CHUNK_SIZE_DEFAULT,
-    }
-
-    # Content-type to overlap percentage
-    _OVERLAP_PCTS = {
-        "email": 0.12,
-        "paper": config.vector_db.CHUNK_OVERLAP_PERCENT,
-        "rss": 0.10,
-        "default": config.vector_db.CHUNK_OVERLAP_PERCENT,
-    }
 
     def __init__(
         self,
         default_chunk_size: int | None = None,
         overlap_percent: float | None = None,
     ):
-        self._default_chunk_size = default_chunk_size or config.vector_db.CHUNK_SIZE_DEFAULT
-        self._default_overlap = overlap_percent or config.vector_db.CHUNK_OVERLAP_PERCENT
+        from execution.config import config
+
+        self._chunk_sizes = {
+            "email": config.vector_db.CHUNK_SIZE_EMAIL,
+            "paper": config.vector_db.CHUNK_SIZE_PAPER,
+            "rss": config.vector_db.CHUNK_SIZE_RSS,
+            "default": default_chunk_size or config.vector_db.CHUNK_SIZE_DEFAULT,
+        }
+
+        default_overlap = overlap_percent or config.vector_db.CHUNK_OVERLAP_PERCENT
+        self._overlap_pcts = {
+            "email": 0.12,
+            "paper": default_overlap,
+            "rss": 0.10,
+            "default": default_overlap,
+        }
 
     def chunk_content(self, content: str, content_type: str = "default") -> list[Chunk]:
         """Split content into semantic chunks based on content type.
@@ -110,8 +112,8 @@ class SemanticChunker:
 
     def _chunk_email(self, content: str) -> list[Chunk]:
         """Chunk email content. Target: 400 tokens."""
-        target = self._CHUNK_SIZES["email"]
-        overlap_pct = self._OVERLAP_PCTS["email"]
+        target = self._chunk_sizes["email"]
+        overlap_pct = self._overlap_pcts["email"]
 
         # Convert HTML to text if content looks like HTML
         if self._looks_like_html(content):
@@ -127,8 +129,8 @@ class SemanticChunker:
 
     def _chunk_paper(self, content: str) -> list[Chunk]:
         """Chunk academic paper content. Target: 512 tokens."""
-        target = self._CHUNK_SIZES["paper"]
-        overlap_pct = self._OVERLAP_PCTS["paper"]
+        target = self._chunk_sizes["paper"]
+        overlap_pct = self._overlap_pcts["paper"]
 
         sections = self._split_into_sections(content)
 
@@ -156,8 +158,8 @@ class SemanticChunker:
 
     def _chunk_rss(self, content: str) -> list[Chunk]:
         """Chunk RSS item content. Target: 256 tokens."""
-        target = self._CHUNK_SIZES["rss"]
-        overlap_pct = self._OVERLAP_PCTS["rss"]
+        target = self._chunk_sizes["rss"]
+        overlap_pct = self._overlap_pcts["rss"]
 
         # RSS items are typically short
         token_count = self._estimate_tokens(content)
@@ -171,8 +173,8 @@ class SemanticChunker:
 
     def _chunk_default(self, content: str) -> list[Chunk]:
         """Chunk generic content. Target: 400 tokens, 15% overlap."""
-        target = self._CHUNK_SIZES["default"]
-        overlap_pct = self._OVERLAP_PCTS["default"]
+        target = self._chunk_sizes["default"]
+        overlap_pct = self._overlap_pcts["default"]
 
         chunks = self._split_by_paragraphs_then_sentences(content, target)
         chunks = self._merge_small_chunks(chunks)
@@ -280,8 +282,12 @@ class SemanticChunker:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """Estimate token count: ~1 token per 4 characters."""
-        return max(1, len(text) // 4)
+        """Estimate token count using tiktoken (cl100k_base).
+
+        Falls back to 1 token per 4 characters if tiktoken unavailable.
+        Uses token_tracking.estimate_tokens for consistency with embedding API.
+        """
+        return max(1, _tiktoken_estimate([text]))
 
     @staticmethod
     def _looks_like_html(content: str) -> bool:

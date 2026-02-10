@@ -9,20 +9,20 @@ Requirements for the knowledge layer milestone. Each maps to roadmap phases.
 
 ### RAG Infrastructure
 
-- [ ] **INFRA-01**: Vector database (pgvector) provisioned with HNSW indexing for semantic search
-- [ ] **INFRA-02**: Embedding pipeline using OpenAI text-embedding-3-small with batch API support
-- [ ] **INFRA-03**: Semantic chunking pipeline that preserves meaning across content types (emails, papers, RSS)
-- [ ] **INFRA-04**: AI auto-tagging on ingestion — topic classification, entity extraction, source type labeling
-- [ ] **INFRA-05**: Tenant-aware data model (namespace isolation) for future multi-tenancy without rewrite
-- [ ] **INFRA-06**: Incremental re-indexing pipeline for knowledge base updates (not full re-embed)
+- [x] **INFRA-01**: Vector database (pgvector) provisioned with HNSW indexing for semantic search
+- [x] **INFRA-02**: Embedding pipeline using OpenAI text-embedding-3-small with batch API support
+- [x] **INFRA-03**: Semantic chunking pipeline that preserves meaning across content types (emails, papers, RSS)
+- [x] **INFRA-04**: AI auto-tagging on ingestion — topic classification, entity extraction, source type labeling
+- [x] **INFRA-05**: Tenant-aware data model (namespace isolation) for future multi-tenancy without rewrite
+- [x] **INFRA-06**: Incremental re-indexing pipeline for knowledge base updates (not full re-embed)
 
 ### Search & Retrieval
 
-- [ ] **RETR-01**: Hybrid search combining dense vectors (semantic) + sparse vectors (BM25) with RRF fusion
-- [ ] **RETR-02**: Metadata filtering — user can scope searches by date range, source type, topic tags
-- [ ] **RETR-03**: Fine-grained citations — sentence-level source attribution with clickable links to original
-- [ ] **RETR-04**: Source recency scoring — prioritize recent sources for trend-sensitive content
-- [ ] **RETR-05**: CrossEncoder reranking on top-K retrieval results for precision improvement
+- [x] **RETR-01**: Hybrid search combining dense vectors (semantic) + sparse vectors (BM25) with RRF fusion
+- [x] **RETR-02**: Metadata filtering — user can scope searches by date range, source type, topic tags
+- [x] **RETR-03**: Fine-grained citations — sentence-level source attribution with clickable links to original
+- [x] **RETR-04**: Source recency scoring — prioritize recent sources for trend-sensitive content
+- [x] **RETR-05**: CrossEncoder reranking on top-K retrieval results for precision improvement
 
 ### Gmail Newsletter Ingestion
 
@@ -112,17 +112,17 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
-| INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 1 | Pending |
-| INFRA-05 | Phase 1 | Pending |
-| INFRA-06 | Phase 1 | Pending |
-| RETR-01 | Phase 2 | Pending |
-| RETR-02 | Phase 2 | Pending |
-| RETR-03 | Phase 2 | Pending |
-| RETR-04 | Phase 2 | Pending |
-| RETR-05 | Phase 2 | Pending |
+| INFRA-01 | Phase 1 | Complete |
+| INFRA-02 | Phase 1 | Complete |
+| INFRA-03 | Phase 1 | Complete |
+| INFRA-04 | Phase 1 | Complete |
+| INFRA-05 | Phase 1 | Complete |
+| INFRA-06 | Phase 1 | Complete |
+| RETR-01 | Phase 2 | Complete |
+| RETR-02 | Phase 2 | Complete |
+| RETR-03 | Phase 2 | Complete |
+| RETR-04 | Phase 2 | Complete |
+| RETR-05 | Phase 2 | Complete |
 | GMAIL-01 | Phase 3 | Pending |
 | GMAIL-02 | Phase 3 | Pending |
 | GMAIL-03 | Phase 3 | Pending |
@@ -154,4 +154,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-09*
-*Last updated: 2026-02-10 (traceability mapping)*
+*Last updated: 2026-02-10 (Phase 1 + Phase 2 requirements complete)*

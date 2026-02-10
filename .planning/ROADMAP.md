@@ -12,8 +12,8 @@ This milestone transforms GhostWriter from a single-session content generator in
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Vector DB Foundation** - pgvector infrastructure with embedding and chunking pipelines
-- [ ] **Phase 2: Retrieval Tools** - Hybrid search, reranking, and metadata filtering for RAG
+- [x] **Phase 1: Vector DB Foundation** - pgvector infrastructure with embedding and chunking pipelines
+- [x] **Phase 2: Retrieval Tools** - Hybrid search, reranking, and metadata filtering for RAG
 - [ ] **Phase 3: Gmail Newsletter Ingestion** - OAuth-connected email ingestion with structured extraction
 - [ ] **Phase 4: Semantic Scholar Integration** - Academic paper ingestion with citation support
 - [ ] **Phase 5: Pipeline Integration** - LangGraph tool-based RAG integration with feature flags
@@ -35,10 +35,10 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 4 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Docker + pgvector setup, SQLAlchemy models, config
-- [ ] 01-02-PLAN.md -- OpenAI embedding pipeline with sync/batch modes and cost guardrails
-- [ ] 01-03-PLAN.md -- Semantic chunking and AI auto-tagging
-- [ ] 01-04-PLAN.md -- Ingestion orchestrator, HNSW indexing, end-to-end verification
+- [x] 01-01-PLAN.md -- Docker + pgvector setup, SQLAlchemy models, config
+- [x] 01-02-PLAN.md -- OpenAI embedding pipeline with sync/batch modes and cost guardrails
+- [x] 01-03-PLAN.md -- Semantic chunking and AI auto-tagging
+- [x] 01-04-PLAN.md -- Ingestion orchestrator, HNSW indexing, end-to-end verification
 
 ### Phase 2: Retrieval Tools
 **Goal**: Build modular RAG retrieval layer with hybrid search and reranking for agent integration
@@ -53,9 +53,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Metadata filters, recency scoring, and citation extraction utilities
-- [ ] 02-02-PLAN.md -- BM25 sparse index and CrossEncoder reranking modules
-- [ ] 02-03-PLAN.md -- Hybrid retrieval orchestrator, config, package exports, integration test
+- [x] 02-01-PLAN.md -- Metadata filters, recency scoring, and citation extraction utilities
+- [x] 02-02-PLAN.md -- BM25 sparse index and CrossEncoder reranking modules
+- [x] 02-03-PLAN.md -- Hybrid retrieval orchestrator, config, package exports, integration test
 
 ### Phase 3: Gmail Newsletter Ingestion
 **Goal**: Enable automated newsletter ingestion from Gmail with structured extraction and vectorization
@@ -134,8 +134,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Vector DB Foundation | 0/4 | Planning complete | - |
-| 2. Retrieval Tools | 0/3 | Planning complete | - |
+| 1. Vector DB Foundation | 4/4 | ✓ Complete | 2026-02-10 |
+| 2. Retrieval Tools | 3/3 | ✓ Complete | 2026-02-10 |
 | 3. Gmail Newsletter Ingestion | 0/TBD | Not started | - |
 | 4. Semantic Scholar Integration | 0/TBD | Not started | - |
 | 5. Pipeline Integration | 0/TBD | Not started | - |
@@ -144,4 +144,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 
 ---
 *Roadmap created: 2026-02-10*
-*Last updated: 2026-02-10 (Phase 2 planned: 3 plans in 2 waves)*
+*Last updated: 2026-02-10 (Phase 2 complete: 3/3 plans, verified)*

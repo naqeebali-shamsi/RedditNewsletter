@@ -9,14 +9,16 @@ See: .planning/PROJECT.md (updated 2026-02-09)
 
 ## Current Position
 
-Phase: 1 of 7 (Vector DB Foundation) — COMPLETE
-Plan: 4 of 4 in current phase (all completed)
-Status: Phase complete (live embedding test deferred — OpenAI billing)
-Last activity: 2026-02-10 — Integration test fixes, partial verification passed
+Phase: 2 of 7 (Retrieval Tools)
+Plan: 1 of 3 in current phase
+Status: In progress — Plan 02-01 complete (retrieval utilities)
+Last activity: 2026-02-10 — Completed 02-01-PLAN.md (metadata filters, recency scoring, citations)
 
-Progress: [██████████] ~100% (Phase 1)
+Progress: [████████████░░] ~17% overall (5/estimated 30 plans)
 
-## Phase 1 Delivery Summary
+## Phase Delivery Summaries
+
+### Phase 1: Vector DB Foundation (COMPLETE)
 
 **4 plans executed across 3 waves:**
 - Wave 1 (Plan 01-01): Docker + pgvector + SQLAlchemy models + config
@@ -39,6 +41,19 @@ Progress: [██████████] ~100% (Phase 1)
 | `scripts/test_vectordb.py` | End-to-end integration test | CLI test runner |
 
 **Deferred:** Live embedding + semantic search test (OpenAI monthly budget exhausted). All code paths verified via import/instantiation/unit checks.
+
+### Phase 2: Retrieval Tools (IN PROGRESS)
+
+**1 plan executed (Wave 1):**
+- Plan 02-01: Metadata filters + recency scoring + citation extraction
+
+**3 commits total. Key artifacts:**
+
+| Module | Purpose | Key Exports |
+|--------|---------|-------------|
+| `execution/vector_db/metadata_filters.py` | SQLAlchemy filter builders for scoped retrieval | MetadataFilter, build_filters |
+| `execution/vector_db/recency_scoring.py` | Time decay functions for trend-aware ranking | RecencyScorer |
+| `execution/vector_db/citations.py` | Sentence-level citation extraction | CitationExtractor, Citation |
 
 ## Performance Metrics
 
@@ -71,11 +86,17 @@ Recent decisions affecting current work:
 - Rule-based chunking first, LLM-powered later: Deterministic and testable foundation; LLM chunking deferred to Phase 3 (D-01-03-003)
 - Docker port 5433 to avoid local PostgreSQL conflict (D-01-04-001)
 - expire_on_commit=False for returning ORM objects from ingestion pipeline (D-01-04-002)
+- SQLAlchemy JSONB operators over raw SQL for metadata filtering: Eliminates SQL injection, handles type casting (D-02-01-001)
+- 14-day half-life default for recency decay: Research-validated (ArXiv 2509.19376), configurable per source type (D-02-01-002)
+- Keyword heuristics for trend detection (not LLM): Fast, deterministic, extensible to LLM later (D-02-01-003)
+- Citation ID format {chunk_id}.{sentence_idx}: Compact, preserves context, easy to parse (D-02-01-004)
 
 ### Pending Todos
 
 - Run full integration test with live OpenAI embeddings when budget resets (18 days)
 - Fix numpy/matplotlib version conflict (lexicalrichness depends on matplotlib compiled for numpy 1.x)
+- Add GIN indexes on topic_tags and entities columns before Phase 02-03 hybrid retrieval load testing (Phase 2)
+- Track LLM citation compliance rate in Phase 5 (% of claims with [citation_id])
 
 ### Blockers/Concerns
 
@@ -86,12 +107,16 @@ Recent decisions affecting current work:
 - Semantic Scholar rate limits (prevention: batch endpoints, 1 req/sec enforcement, citation depth limiting)
 
 **Phase-specific research flags:**
+- Phase 2 (Retrieval Tools): GIN index performance needs validation at 100k+ chunks before hybrid retrieval
+- Phase 2 (Retrieval Tools): Trend keyword coverage may miss queries — log classifications to identify gaps
 - Phase 3 (Gmail Ingestion): Newsletter format diversity testing needed with Substack/Beehiiv/ConvertKit
 - Phase 4 (Semantic Scholar): Citation graph traversal strategies and batch endpoint behavior need validation
 - Phase 5 (Pipeline Integration): Agent-specific retrieval impact unknown — A/B testing required
+- Phase 5 (Pipeline Integration): LLM citation compliance unknown — track [citation_id] usage in responses
 
 ## Session Continuity
 
-Last session: 2026-02-10T12:00:00Z
-Stopped at: Phase 1 complete. All 4 plans executed, reviewed, and tested.
+Last session: 2026-02-10T16:31:20Z
+Stopped at: Completed 02-01-PLAN.md (metadata filters, recency scoring, citations)
 Resume file: None
+Next: Phase 02-02 (BM25 + RRF Hybrid Search) or 02-03 (Hybrid Retrieval Orchestrator)

@@ -50,9 +50,12 @@ Plans:
   3. Fine-grained citations provide sentence-level source attribution with clickable links
   4. Source recency scoring prioritizes documents less than 6 months old for trend content
   5. CrossEncoder reranking improves precision on top-K retrieval results
-**Plans**: TBD
+**Plans**: 3 plans
 
-Plans: (to be defined during plan-phase)
+Plans:
+- [ ] 02-01-PLAN.md -- Metadata filters, recency scoring, and citation extraction utilities
+- [ ] 02-02-PLAN.md -- BM25 sparse index and CrossEncoder reranking modules
+- [ ] 02-03-PLAN.md -- Hybrid retrieval orchestrator, config, package exports, integration test
 
 ### Phase 3: Gmail Newsletter Ingestion
 **Goal**: Enable automated newsletter ingestion from Gmail with structured extraction and vectorization
@@ -119,7 +122,7 @@ Plans: (to be defined during plan-phase)
 **Success Criteria** (what must be TRUE):
   1. One article generated using knowledge from Gmail newsletters, Semantic Scholar papers, and existing sources
   2. Article contains fine-grained citations with sentence-level attribution to sources
-  3. Full pipeline demonstrates research → retrieval → synthesis → generation → verification working end-to-end
+  3. Full pipeline demonstrates research -> retrieval -> synthesis -> generation -> verification working end-to-end
 **Plans**: TBD
 
 Plans: (to be defined during plan-phase)
@@ -127,12 +130,12 @@ Plans: (to be defined during plan-phase)
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Vector DB Foundation | 0/4 | Planning complete | - |
-| 2. Retrieval Tools | 0/TBD | Not started | - |
+| 2. Retrieval Tools | 0/3 | Planning complete | - |
 | 3. Gmail Newsletter Ingestion | 0/TBD | Not started | - |
 | 4. Semantic Scholar Integration | 0/TBD | Not started | - |
 | 5. Pipeline Integration | 0/TBD | Not started | - |
@@ -141,4 +144,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 ---
 *Roadmap created: 2026-02-10*
-*Last updated: 2026-02-10 (Phase 1 planned: 4 plans in 3 waves)*
+*Last updated: 2026-02-10 (Phase 2 planned: 3 plans in 2 waves)*

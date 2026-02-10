@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-09)
 ## Current Position
 
 Phase: 1 of 7 (Vector DB Foundation)
-Plan: 2 of 4 in current phase
+Plan: 3 of 4 in current phase
 Status: In progress
-Last activity: 2026-02-10 — Completed 01-02-PLAN.md (OpenAI embedding pipeline)
+Last activity: 2026-02-10 — Completed 01-03-PLAN.md (Semantic chunking + auto-tagging)
 
-Progress: [██░░░░░░░░] ~10%
+Progress: [███░░░░░░░] ~15%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
-- Average duration: 3 min
-- Total execution time: 0.1 hours
+- Total plans completed: 3
+- Average duration: 3.3 min
+- Total execution time: 0.17 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 - Vector DB Foundation | 2 | 6 min | 3 min |
+| 01 - Vector DB Foundation | 3 | 10 min | 3.3 min |
 
 **Recent Trend:**
-- Last 5 plans: [01-01: 3 min, 01-02: 3 min]
-- Trend: Stable at 3 min/plan
+- Last 5 plans: [01-01: 3 min, 01-02: 3 min, 01-03: 4 min]
+- Trend: Stable at ~3-4 min/plan
 
 *Updated after each plan completion*
 
@@ -47,6 +47,9 @@ Recent decisions affecting current work:
 - Modular RAG with tool-based retrieval: RAG operates as LangGraph tools invoked by agents, not as separate service layer coupling to hot path
 - Daily batch for Gmail ingestion: Simpler than real-time, sufficient for newsletter use case
 - Both structured extraction + semantic chunks: Structured for precise facts, chunks for broad retrieval — covers both use cases
+- pysbd over regex for sentence splitting: 97.92% accuracy, handles abbreviations/decimals/URLs (D-01-03-001)
+- html2text + regex for email processing: Library for HTML conversion, hand-rolled for domain-specific boilerplate (D-01-03-002)
+- Rule-based chunking first, LLM-powered later: Deterministic and testable foundation; LLM chunking deferred to Phase 3 (D-01-03-003)
 
 ### Pending Todos
 
@@ -67,6 +70,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-10T04:11:06Z
-Stopped at: Completed 01-02-PLAN.md (OpenAI embedding pipeline)
+Last session: 2026-02-10T04:12:37Z
+Stopped at: Completed 01-03-PLAN.md (Semantic chunking + auto-tagging)
 Resume file: None
